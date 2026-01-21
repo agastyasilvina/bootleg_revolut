@@ -12,6 +12,10 @@ spring:
     username: bootleg
     password: bootleg
 
+  reactor:
+    context-propagation: auto
+
+
 server:
   port: 8080
   error:
@@ -24,3 +28,19 @@ obs:
     session-ttl: PT30M
 
 
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # OTLP HTTP endpoint (commonly 4318). Change to your collector/backend.
+          endpoint: http://localhost:4318/v1/traces
+
+# Optional: make logs clearly show traceId/spanId (Spring Boot can include correlation IDs by default)
+logging:
+  pattern:
+    correlation: "[%X{traceId:-},%X{spanId:-}] "
+  include-application-name: false
