@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EDD Form Renderer — schema-driven</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EAEDF2;
+    --surface:#FFFFFF;
+    --surface-2:#F6F7FA;
+    --ink:#171B26;
+    --muted:#6A7283;
+    --faint:#9AA1B0;
+    --line:#E2E5EC;
+    --line-strong:#CDD2DD;
+    --accent:#4338CA;          /* interactive */
+    --accent-soft:#ECEBFB;
+    --lookup:#7C3AED;          /* parameterType / data-dictionary source */
+    --lookup-soft:#F2ECFD;
+    --rule:#9A6B00;            /* validation rules */
+    --rule-soft:#FBF1DA;
+    --cond:#0E7C61;            /* conditional / child form */
+    --cond-soft:#DEF3EC;
+    --required:#B42318;
+    --required-soft:#FBE9E7;
+    --radius:14px;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:var(--sans);line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 80px}
+
+  /* ---- header ---- */
+  header.page{
+    display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end;
+    justify-content:space-between;margin-bottom:8px;
+  }
+  .titles h1{
+    font-size:26px;font-weight:700;letter-spacing:-0.02em;margin:0 0 4px;
+  }
+  .titles p{margin:0;color:var(--muted);font-size:14px;max-width:46ch}
+  .ctx{
+    display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;
+  }
+  .ctx .tag{font-size:11px}
+
+  .controls{display:flex;align-items:center;gap:14px}
+  .switch{
+    display:inline-flex;align-items:center;gap:9px;cursor:pointer;
+    font-size:13px;font-weight:500;color:var(--ink);user-select:none;
+  }
+  .switch input{position:absolute;opacity:0;pointer-events:none}
+  .track{
+    width:40px;height:23px;border-radius:999px;background:var(--line-strong);
+    position:relative;transition:background .18s ease;flex:none;
+  }
+  .track::after{
+    content:"";position:absolute;top:2px;left:2px;width:19px;height:19px;
+    border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);
+    transition:transform .18s ease;
+  }
+  .switch input:checked + .track{background:var(--accent)}
+  .switch input:checked + .track::after{transform:translateX(17px)}
+  .switch input:focus-visible + .track{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* ---- legend ---- */
+  .legend{
+    display:flex;flex-wrap:wrap;gap:8px 16px;margin:18px 0 26px;
+    padding:14px 16px;background:var(--surface);border:1px solid var(--line);
+    border-radius:12px;font-size:12px;
+  }
+  .legend .li{display:inline-flex;align-items:center;gap:7px;color:var(--muted)}
+  .swatch{width:11px;height:11px;border-radius:3px;flex:none}
+
+  /* ---- field card ---- */
+  .field{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);padding:20px 22px;margin-bottom:16px;
+    position:relative;
+  }
+  .field > legend, .field-head{
+    padding:0;margin:0 0 14px;display:block;width:100%;
+  }
+  .field-label{
+    font-size:15px;font-weight:600;letter-spacing:-0.01em;
+    display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  }
+  .field-label .kind{
+    font-family:var(--mono);font-size:10px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.04em;
+    color:var(--accent);background:var(--accent-soft);
+    padding:3px 7px;border-radius:6px;
+  }
+
+  /* ---- controls ---- */
+  .opt-list{display:flex;flex-direction:column;gap:2px}
+  .opt{
+    display:flex;align-items:flex-start;gap:11px;padding:9px 11px;
+    border-radius:9px;cursor:pointer;transition:background .12s ease;
+  }
+  .opt:hover{background:var(--surface-2)}
+  .opt input{margin-top:2px;width:17px;height:17px;accent-color:var(--accent);flex:none;cursor:pointer}
+  .opt .opt-text{font-size:14px}
+  .opt .code{
+    font-family:var(--mono);font-size:10.5px;color:var(--faint);
+    margin-left:6px;
+  }
+
+  select.ctrl,input.ctrl{
+    font-family:var(--sans);font-size:14px;color:var(--ink);
+    width:100%;max-width:420px;padding:10px 12px;border-radius:9px;
+    border:1px solid var(--line-strong);background:var(--surface);
+    transition:border-color .12s ease,box-shadow .12s ease;
+  }
+  select.ctrl{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236A7283' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center;padding-right:34px}
+  .ctrl:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .ctrl::placeholder{color:var(--faint)}
+  .charcount{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-top:5px}
+
+  /* ---- conditional child form ---- */
+  .child{
+    margin:6px 0 4px 28px;padding:15px 16px;border-radius:11px;
+    background:var(--cond-soft);border:1px solid #C2E7DC;
+    display:none;
+  }
+  .child.open{display:block;animation:reveal .2s ease}
+  @keyframes reveal{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+  .child-head{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    font-size:11px;font-weight:600;color:var(--cond);
+    text-transform:uppercase;letter-spacing:.04em;margin-bottom:11px;
+  }
+  .child .field-sub{margin-bottom:13px}
+  .child .field-sub:last-child{margin-bottom:0}
+  .child .sub-label{font-size:13px;font-weight:600;margin-bottom:7px;color:var(--ink)}
+
+  /* ---- schema rail (tags) ---- */
+  .rail{
+    margin-top:14px;padding-top:13px;border-top:1px dashed var(--line);
+    display:flex;flex-wrap:wrap;gap:6px;
+  }
+  .child .rail{border-top-color:#C2E7DC}
+  .tag{
+    font-family:var(--mono);font-size:11px;font-weight:500;
+    padding:3px 8px;border-radius:6px;white-space:nowrap;
+    display:inline-flex;align-items:center;gap:5px;line-height:1.4;
+  }
+  .tag .k{opacity:.62;font-weight:600}
+  .tag.meta{background:var(--surface-2);color:#475066;border:1px solid var(--line)}
+  .tag.lookup{background:var(--lookup-soft);color:var(--lookup)}
+  .tag.rule{background:var(--rule-soft);color:var(--rule)}
+  .tag.cond{background:var(--cond-soft);color:var(--cond)}
+  .tag.required{background:var(--required-soft);color:var(--required)}
+
+  /* inspect-off hides every rail + option code */
+  body:not(.inspect) .rail{display:none}
+  body:not(.inspect) .opt .code{display:none}
+  body:not(.inspect) .field-label .kind{display:none}
+  body:not(.inspect) .child-head .tag{display:none}
+
+  footer.page{
+    margin-top:30px;font-size:12.5px;color:var(--muted);
+    text-align:center;line-height:1.7;
+  }
+  footer.page code{font-family:var(--mono);font-size:11.5px;background:var(--surface);padding:1px 6px;border-radius:5px;border:1px solid var(--line)}
+
+  @media (max-width:560px){
+    .wrap{padding:24px 14px 60px}
+    .titles h1{font-size:22px}
+    header.page{align-items:flex-start}
+    .child{margin-left:14px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none !important;transition:none !important}
+  }
+</style>
+</head>
+<body class="inspect">
+<div class="wrap">
+
+  <header class="page">
+    <div class="titles">
+      <h1>EDD Form Renderer</h1>
+      <p>A schema-driven render of the form config. Fields, controls and conditional sub-forms are all generated from the JSON — nothing is hard-coded.</p>
+      <div class="ctx" id="ctx"></div>
+    </div>
+    <div class="controls">
+      <label class="switch">
+        <input type="checkbox" id="inspectToggle" checked />
+        <span class="track"></span>
+        <span>Inspect schema</span>
+      </label>
+    </div>
+  </header>
+
+  <div class="legend" aria-hidden="true">
+    <span class="li"><span class="swatch" style="background:var(--surface-2);border:1px solid var(--line)"></span>field metadata</span>
+    <span class="li"><span class="swatch" style="background:var(--lookup-soft);border:1px solid var(--lookup)"></span>parameterType (lookup source)</span>
+    <span class="li"><span class="swatch" style="background:var(--rule-soft);border:1px solid var(--rule)"></span>validation rule</span>
+    <span class="li"><span class="swatch" style="background:var(--cond-soft);border:1px solid var(--cond)"></span>conditional child form</span>
+    <span class="li"><span class="swatch" style="background:var(--required-soft);border:1px solid var(--required)"></span>required</span>
+  </div>
+
+  <form id="form" autocomplete="off"></form>
+
+  <footer class="page">
+    Generated from <code>FORM_EDD</code>. Validation hints (length, char set, guard mode) and lookup sources<br>
+    are derived directly from each field's <code>validations</code> and <code>parameterType</code>.
+  </footer>
+
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ *  1. The schema (cleaned from the source JSON — quotes normalised)  *
+ * ------------------------------------------------------------------ */
+const RESPONSE = {
+  status: "SUCCESS",
+  error_code: "0",
+  data: {
+    groupId: "3",
+    formFields: [{
+      form_key: "FORM_EDD",
+      fields: [
+        {
+          fieldKey: "FIELD_SOURCE_OF_FUND",
+          fieldType: "CHECK_BOX_BASIC",
+          dataType: "STRING",
+          parameterType: "SOURCE_OF_FUND",
+          options: [
+            { code: "0", title: "Salary/Pension" },
+            { code: "1", title: "Business Income" },
+            { code: "2", title: "Financial Instruments or Investments",
+              childFormKey: "FORM_FINANCIAL_INSTRUMENT",
+              formConfig: { form_key: "FORM_FINANCIAL_INSTRUMENT", rules: ["REQUIRED"], fields: [
+                { fieldKey: "FIELD_FINANCIAL_INSTRUMENT_TYPE", fieldType: "FREE_TEXT", dataType: "STRING",
+                  validations: [{ type:"STRING", min_selection:1, max_selection:1, min_length:2, max_length:80, string_type:"ALPHA_SPECIAL", string_guard_mode:["ALLOW_SPACE","NO_DOUBLE_SPACE"], characters:[".",",","'"] }] }
+              ]}
+            },
+            { code: "3", title: "Gifts, Donations, or Inheritance",
+              childFormKey: "FORM_RELATIONSHIP_WITH_PROVIDER",
+              formConfig: { form_key: "FORM_RELATIONSHIP_WITH_PROVIDER", rules: ["REQUIRED"], fields: [
+                { fieldKey: "FIELD_RELATIONSHIP_INFO", fieldType: "FREE_TEXT", dataType: "STRING",
+                  validations: [{ type:"STRING", min_selection:1, max_selection:1, min_length:2, max_length:80, string_type:"ALPHA_SPECIAL", string_guard_mode:["ALLOW_SPACE","NO_DOUBLE_SPACE"], characters:[".",",","'"] }] }
+              ]}
+            },
+            { code: "4", title: "Asset Sales" },
+            { code: "5", title: "Shareholder Capital" },
+            { code: "6", title: "Business Partner Payments" }
+          ]
+        },
+        {
+          fieldKey: "FIELD_TOTAL_OMZET",
+          fieldType: "DROP_DOWN_BASIC",
+          dataType: "STRING",
+          parameterType: "OMZET",
+          options: [
+            { code: "0", title: "Up to IDR 10 million" },
+            { code: "1", title: "IDR 10 million – IDR 50 million" },
+            { code: "2", title: "IDR 50 million – IDR 100 million" },
+            { code: "3", title: "> IDR 100 million" }
+          ]
+        },
+        {
+          fieldKey: "FIELD_HAS_OTHER_SOURCE_OF_FUND",
+          fieldType: "RADIO_BUTTON",
+          dataType: "STRING",
+          parameterType: "OTHER_SOURCE_OF_FUND",
+          options: [
+            { code: "0", title: "Yes",
+              childFormKey: "FORM_OTHER_SOURCE_OF_FUND",
+              formConfig: { form_key: "FORM_OTHER_SOURCE_OF_FUND", rules: ["REQUIRED"], fields: [
+                { fieldKey: "FIELD_OTHER_SOURCE_OF_FUND_DESC", fieldType: "FREE_TEXT", dataType: "STRING",
+                  validations: [{ type:"STRING", min_selection:1, max_selection:1, min_length:2, max_length:80, string_type:"ALPHA_SPECIAL", string_guard_mode:["ALLOW_SPACE","NO_DOUBLE_SPACE"], characters:[".",",","'"] }] },
+                { fieldKey: "FIELD_OTHER_SOURCE_OF_FUND_OMZET", fieldType: "DROP_DOWN_BASIC", dataType: "STRING", parameterType: "OMZET",
+                  options: [
+                    { code:"0", title:"Up to IDR 10 million" },
+                    { code:"1", title:"IDR 10 million – IDR 50 million" },
+                    { code:"2", title:"IDR 50 million – IDR 100 million" },
+                    { code:"3", title:"> IDR 100 million" }
+                  ] }
+              ]}
+            },
+            { code: "1", title: "No" }
+          ]
+        },
+        {
+          fieldKey: "FIELD_COUNTERPARTY",
+          fieldType: "CHECK_BOX_BASIC",
+          dataType: "STRING",
+          parameterType: "COUNTERPARTY",
+          options: [
+            { code:"0", title:"Family" },
+            { code:"1", title:"Business Partner" },
+            { code:"2", title:"OCBC Bank or Other Banks" },
+            { code:"3", title:"Others",
+              childFormKey: "FORM_OTHER_COUNTERPARTY_DESC",
+              formConfig: { form_key:"FORM_OTHER_COUNTERPARTY_DESC", rules:["REQUIRED"], fields:[
+                { fieldKey:"FIELD_OTHER_COUNTERPARTY_DESC", fieldType:"FREE_TEXT", dataType:"STRING",
+                  validations:[{ type:"STRING", min_selection:1, max_selection:1, min_length:2, max_length:80, string_type:"ALPHA_SPECIAL", string_guard_mode:["ALLOW_SPACE","NO_DOUBLE_SPACE"], characters:[".",",","'"] }] }
+              ]}
+            }
+          ]
+        },
+        {
+          fieldKey: "FIELD_TRANSACTION_AREA",
+          fieldType: "CHECK_BOX_BASIC",
+          dataType: "STRING",
+          parameterType: "TRANSACTION_AREA",
+          options: [
+            { code:"0", title:"Asia",          childFormKey:"FORM_ASIA_DETAIL",    formConfig: regionForm("FORM_ASIA_DETAIL") },
+            { code:"1", title:"United States", childFormKey:"FORM_AMERICA_DETAIL", formConfig: regionForm("FORM_AMERICA_DETAIL") },
+            { code:"2", title:"Europe",        childFormKey:"FORM_EUROPE_DETAIL",  formConfig: regionForm("FORM_EUROPE_DETAIL") },
+            { code:"3", title:"Africa",        childFormKey:"FORM_AFRICA_DETAIL",  formConfig: regionForm("FORM_AFRICA_DETAIL") },
+            { code:"4", title:"Iran, North Korea, Cuba, Syria, Sudan, Crimea (State of Ukraine & Russia)",
+              childFormKey:"FORM_SANCTIONED_REGION_DETAIL", formConfig: regionForm("FORM_SANCTIONED_REGION_DETAIL") }
+          ]
+        }
+      ]
+    }]
+  }
+};
+
+// the five TRANSACTION_AREA child forms share the same shape
+function regionForm(key){
+  return { form_key:key, rules:["REQUIRED"], fields:[
+    { fieldKey:"FIELD_REGION_DETAIL", fieldType:"FREE_TEXT", dataType:"STRING",
+      validations:[{ type:"STRING", min_length:2, max_length:50, string_type:"ALPHA_SPECIAL",
+        string_guard_mode:["ALLOW_SPACE","NO_DOUBLE_SPACE"], characters:[".",",","'"] }] }
+  ]};
+}
+
+/* ------------------------------------------------------------------ *
+ *  2. Tiny helpers                                                   *
+ * ------------------------------------------------------------------ */
+const el = (tag, cls, txt) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (txt != null) n.textContent = txt;
+  return n;
+};
+
+// FIELD_SOURCE_OF_FUND -> "Source Of Fund"
+const humanize = key => key
+  .replace(/^FIELD_/, "")
+  .toLowerCase()
+  .split("_")
+  .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+  .join(" ");
+
+const tag = (cls, key, val) => {
+  const t = el("span", "tag " + cls);
+  if (key) t.appendChild(el("span", "k", key + " "));
+  t.appendChild(document.createTextNode(val));
+  return t;
+};
+
+let uid = 0;
+const nextId = () => "f" + (++uid);
+
+/* ------------------------------------------------------------------ *
+ *  3. Build the metadata + validation rail for a field               *
+ * ------------------------------------------------------------------ */
+function buildRail(field){
+  const rail = el("div", "rail");
+  rail.appendChild(tag("meta", "key", field.fieldKey));
+  rail.appendChild(tag("meta", "type", field.fieldType));
+  if (field.dataType) rail.appendChild(tag("meta", "data", field.dataType));
+  if (field.parameterType) rail.appendChild(tag("lookup", "lookup", field.parameterType));
+
+  // selection rule implied by control type
+  if (field.fieldType === "CHECK_BOX_BASIC") rail.appendChild(tag("rule", null, "multi-select"));
+  if (field.fieldType === "RADIO_BUTTON")    rail.appendChild(tag("rule", null, "single-select"));
+
+  // FREE_TEXT validations
+  const v = field.validations && field.validations[0];
+  if (v){
+    if (v.min_length != null && v.max_length != null)
+      rail.appendChild(tag("rule", null, v.min_length + "–" + v.max_length + " chars"));
+    if (v.string_type) rail.appendChild(tag("rule", null, v.string_type));
+    (v.string_guard_mode || []).forEach(g => rail.appendChild(tag("rule", null, g)));
+    if (v.characters && v.characters.length)
+      rail.appendChild(tag("rule", null, "allows " + v.characters.join(" ")));
+  }
+
+  // child-form pointers on this field's options
+  (field.options || []).forEach(o => {
+    if (o.childFormKey) rail.appendChild(tag("cond", "→", o.childFormKey));
+  });
+  return rail;
+}
+
+/* ------------------------------------------------------------------ *
+ *  4. Render one field (recursive for child sub-forms)               *
+ * ------------------------------------------------------------------ */
+function renderField(field, mount, sub){
+  const card = el(sub ? "div" : "fieldset", sub ? "field-sub" : "field");
+
+  // label
+  const head = el("div", sub ? "sub-label" : "field-label");
+  head.appendChild(document.createTextNode(humanize(field.fieldKey)));
+  if (!sub){
+    const lg = el("legend", "field-head");
+    head.classList.add("field-label");
+    const kind = el("span", "kind", field.fieldType.replace(/_/g, " "));
+    head.appendChild(kind);
+    lg.appendChild(head);
+    card.appendChild(lg);
+  } else {
+    card.appendChild(head);
+  }
+
+  // control
+  if (field.fieldType === "CHECK_BOX_BASIC" || field.fieldType === "RADIO_BUTTON"){
+    renderOptions(field, card);
+  } else if (field.fieldType === "DROP_DOWN_BASIC"){
+    renderSelect(field, card);
+  } else if (field.fieldType === "FREE_TEXT"){
+    renderText(field, card);
+  }
+
+  // schema rail
+  card.appendChild(buildRail(field));
+  mount.appendChild(card);
+}
+
+function renderOptions(field, card){
+  const isRadio = field.fieldType === "RADIO_BUTTON";
+  const list = el("div", "opt-list");
+  const groupName = nextId();
+  const childMounts = [];
+
+  field.options.forEach(opt => {
+    const id = nextId();
+    const row = el("label", "opt");
+    row.setAttribute("for", id);
+
+    const input = el("input");
+    input.type = isRadio ? "radio" : "checkbox";
+    input.id = id;
+    input.name = isRadio ? groupName : (field.fieldKey + "_" + opt.code);
+    input.value = opt.code;
+
+    const text = el("span", "opt-text");
+    text.appendChild(document.createTextNode(opt.title));
+    text.appendChild(el("span", "code", "code " + opt.code));
+
+    row.appendChild(input);
+    row.appendChild(text);
+    list.appendChild(row);
+
+    // conditional child form
+    if (opt.childFormKey && opt.formConfig){
+      const child = el("div", "child");
+      const chead = el("div", "child-head");
+      chead.appendChild(document.createTextNode("Shown when “" + opt.title.slice(0,28) + (opt.title.length>28?"…":"") + "” selected"));
+      chead.appendChild(tag("meta", "form", opt.formConfig.form_key));
+      (opt.formConfig.rules || []).forEach(r => chead.appendChild(tag(r === "REQUIRED" ? "required" : "cond", null, r)));
+      child.appendChild(chead);
+      opt.formConfig.fields.forEach(f => renderField(f, child, true));
+
+      list.appendChild(child);
+      childMounts.push(child);
+
+      input.addEventListener("change", () => {
+        if (isRadio){
+          childMounts.forEach(c => c.classList.remove("open"));
+          if (input.checked) child.classList.add("open");
+        } else {
+          child.classList.toggle("open", input.checked);
+        }
+      });
+    } else if (isRadio){
+      // selecting a no-child radio should collapse any open child
+      input.addEventListener("change", () => childMounts.forEach(c => c.classList.remove("open")));
+    }
+  });
+
+  card.appendChild(list);
+}
+
+function renderSelect(field, card){
+  const sel = el("select", "ctrl");
+  sel.appendChild(el("option", null, "Select an option"));
+  sel.querySelector("option").value = "";
+  field.options.forEach(opt => {
+    const o = el("option", null, opt.title);
+    o.value = opt.code;
+    sel.appendChild(o);
+  });
+  card.appendChild(sel);
+}
+
+function renderText(field, card){
+  const v = (field.validations && field.validations[0]) || {};
+  const input = el("input", "ctrl");
+  input.type = "text";
+  if (v.max_length) input.maxLength = v.max_length;
+  input.placeholder = v.min_length && v.max_length
+    ? "Enter " + v.min_length + "–" + v.max_length + " characters"
+    : "Enter text";
+  card.appendChild(input);
+
+  if (v.max_length){
+    const count = el("div", "charcount", "0 / " + v.max_length);
+    input.addEventListener("input", () => { count.textContent = input.value.length + " / " + v.max_length; });
+    card.appendChild(count);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  5. Boot                                                           *
+ * ------------------------------------------------------------------ */
+(function init(){
+  const data = RESPONSE.data;
+  const block = data.formFields[0];
+
+  // context tags
+  const ctx = document.getElementById("ctx");
+  ctx.appendChild(tag("meta", "form", block.form_key));
+  ctx.appendChild(tag("meta", "groupId", data.groupId));
+  ctx.appendChild(tag("meta", "status", RESPONSE.status));
+
+  const form = document.getElementById("form");
+  block.fields.forEach(f => renderField(f, form));
+
+  // inspect toggle
+  const toggle = document.getElementById("inspectToggle");
+  toggle.addEventListener("change", () => document.body.classList.toggle("inspect", toggle.checked));
+})();
+</script>
+</body>
+</html>

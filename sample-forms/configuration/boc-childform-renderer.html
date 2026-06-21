@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Beneficial Owner Form Renderer — nested childform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EAEDF2;--surface:#FFFFFF;--surface-2:#F6F7FA;
+    --ink:#171B26;--muted:#6A7283;--faint:#9AA1B0;
+    --line:#E2E5EC;--line-strong:#CDD2DD;
+    --accent:#4338CA;--accent-soft:#ECEBFB;
+    --lookup:#7C3AED;--lookup-soft:#F2ECFD;
+    --rule:#9A6B00;--rule-soft:#FBF1DA;
+    --repo:#0B6BCB;--repo-soft:#E4F0FB;
+    --cond:#0E7C61;--cond-soft:#DEF3EC;
+    --required:#B42318;--required-soft:#FBE9E7;
+    --radius:14px;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 80px}
+
+  header.page{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end;justify-content:space-between;margin-bottom:8px}
+  .titles h1{font-size:26px;font-weight:700;letter-spacing:-0.02em;margin:0 0 4px}
+  .titles p{margin:0;color:var(--muted);font-size:14px;max-width:52ch}
+  .ctx{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+
+  .switch{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;font-weight:500;user-select:none}
+  .switch input{position:absolute;opacity:0;pointer-events:none}
+  .track{width:40px;height:23px;border-radius:999px;background:var(--line-strong);position:relative;transition:background .18s ease;flex:none}
+  .track::after{content:"";position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .18s ease}
+  .switch input:checked + .track{background:var(--accent)}
+  .switch input:checked + .track::after{transform:translateX(17px)}
+  .switch input:focus-visible + .track{outline:2px solid var(--accent);outline-offset:2px}
+
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:18px 0 18px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:12px;font-size:12px}
+  .legend .li{display:inline-flex;align-items:center;gap:7px;color:var(--muted)}
+  .swatch{width:11px;height:11px;border-radius:3px;flex:none}
+
+  /* structure explainer */
+  .structure{border:1px solid var(--line-strong);background:var(--surface);border-radius:12px;padding:16px 18px;margin-bottom:26px;font-size:13px}
+  .structure b{font-weight:600}
+  .structure .tree{font-family:var(--mono);font-size:11.5px;line-height:1.85;color:#475066;margin-top:10px;white-space:pre;overflow-x:auto}
+  .structure .tree .fk{color:var(--accent)}
+  .structure .tree .cap{color:var(--cond)}
+  .structure .tree .ty{color:var(--muted)}
+
+  .formgroup-title{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:28px 0 10px;display:flex;align-items:center;gap:9px}
+  .formgroup-title::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent)}
+
+  .field{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;margin-bottom:16px}
+  .field-label{font-size:15px;font-weight:600;letter-spacing:-0.01em;display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:14px}
+  .field-label .kind{font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);background:var(--accent-soft);padding:3px 7px;border-radius:6px}
+
+  /* generic controls */
+  .ctrl{font-family:var(--sans);font-size:14px;color:var(--ink);width:100%;max-width:440px;padding:10px 12px;border-radius:9px;border:1px solid var(--line-strong);background:var(--surface);transition:border-color .12s ease,box-shadow .12s ease}
+  select.ctrl{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236A7283' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center;padding-right:34px;cursor:pointer}
+  .ctrl:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .ctrl::placeholder{color:var(--faint)}
+
+  .opt-list{display:flex;gap:8px;flex-wrap:wrap}
+  .opt{display:flex;align-items:center;gap:9px;padding:8px 13px;border:1px solid var(--line-strong);border-radius:9px;cursor:pointer;transition:background .12s,border-color .12s}
+  .opt:hover{background:var(--surface-2)}
+  .opt input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+  .opt .opt-text{font-size:14px}
+  .opt .code{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-left:4px}
+
+  /* file upload */
+  .file{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
+  .file-btn{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--accent);background:var(--accent-soft);border:1px solid #D7D4F7;padding:9px 14px;border-radius:9px;cursor:pointer}
+  .file-btn:hover{background:#E3E0FA}
+  .file input[type=file]{display:none}
+  .file-name{font-size:13px;color:var(--ink);display:inline-flex;align-items:center;gap:8px}
+  .file-name .x{cursor:pointer;color:var(--faint);font-weight:700}
+  .file-empty{font-size:13px;color:var(--faint)}
+
+  /* childform manager */
+  .cf-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .cf-count{font-size:13px;color:var(--muted)}
+  .cf-count b{color:var(--ink);font-weight:600}
+  .btn{font-family:var(--sans);font-size:13px;font-weight:600;border-radius:9px;padding:9px 15px;cursor:pointer;border:1px solid transparent;transition:background .12s,border-color .12s,opacity .12s}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:#3A30B0}
+  .btn-ghost{background:var(--surface);color:var(--ink);border-color:var(--line-strong)}
+  .btn-ghost:hover{background:var(--surface-2)}
+  .btn-danger{background:transparent;color:var(--required);border-color:#F0C9C4}
+  .btn-danger:hover{background:var(--required-soft)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+
+  .cf-empty{padding:22px;text-align:center;color:var(--faint);font-size:13px;border:1px dashed var(--line-strong);border-radius:11px}
+
+  .entry{border:1px solid var(--line-strong);border-radius:12px;margin-bottom:11px;overflow:hidden}
+  .entry-edit{padding:16px;background:var(--surface-2)}
+  .entry-edit .efield{margin-bottom:13px}
+  .entry-edit .efield:last-of-type{margin-bottom:0}
+  .efield .elabel{font-size:12.5px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+  .efield .etype{font-family:var(--mono);font-size:9.5px;font-weight:600;text-transform:uppercase;color:var(--muted);background:var(--surface);border:1px solid var(--line);padding:2px 5px;border-radius:5px}
+  body:not(.inspect) .efield .etype{display:none}
+  .entry-actions{display:flex;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+
+  /* address summary chip inside edit */
+  .addr-zone{border:1px dashed var(--line-strong);border-radius:10px;padding:13px;background:var(--surface)}
+  .addr-zone .azhead{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:9px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .addr-card{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;background:var(--cond-soft);border:1px solid #C2E7DC;border-radius:9px;padding:10px 12px;margin-bottom:9px}
+  .addr-card .at{font-size:13px}
+  .addr-card .at .prov{font-weight:600}
+  .addr-card .at .det{color:var(--muted);font-size:12.5px}
+  .addr-card .ax{cursor:pointer;color:var(--cond);font-weight:700;font-size:13px}
+
+  /* saved entry view */
+  .entry-view{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px}
+  .entry-view .ev-main .ev-name{font-size:14.5px;font-weight:600}
+  .entry-view .ev-main .ev-sub{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .entry-view .ev-actions{display:flex;gap:8px;flex:none}
+  .entry-idx{font-family:var(--mono);font-size:11px;color:var(--accent);background:var(--accent-soft);padding:3px 8px;border-radius:6px;margin-right:10px}
+
+  /* filled_forms read grid */
+  .read-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px 22px}
+  .read-grid .rf .rfl{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin-bottom:5px;display:flex;align-items:center;gap:7px}
+  .read-grid .rf .rftype{font-family:var(--mono);font-size:9px;color:var(--faint)}
+  body:not(.inspect) .read-grid .rf .rftype{display:none}
+
+  /* repository callout */
+  .repo{margin-top:14px;border:1px solid #BFDDF5;background:var(--repo-soft);border-radius:11px;padding:12px 14px}
+  .repo-head{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--repo);margin-bottom:9px}
+  .repo-grid{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-family:var(--mono);font-size:11.5px}
+  .repo-grid dt{color:var(--repo);opacity:.7;font-weight:600}
+  .repo-grid dd{margin:0;color:#0B3B66;word-break:break-all}
+
+  /* rail */
+  .rail{margin-top:13px;padding-top:13px;border-top:1px dashed var(--line);display:flex;flex-wrap:wrap;gap:6px}
+  .tag{font-family:var(--mono);font-size:11px;font-weight:500;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;line-height:1.4}
+  .tag .k{opacity:.62;font-weight:600}
+  .tag.meta{background:var(--surface-2);color:#475066;border:1px solid var(--line)}
+  .tag.lookup{background:var(--lookup-soft);color:var(--lookup)}
+  .tag.rule{background:var(--rule-soft);color:var(--rule)}
+  .tag.repo{background:var(--repo-soft);color:var(--repo)}
+  .tag.cond{background:var(--cond-soft);color:var(--cond)}
+  .tag.required{background:var(--required-soft);color:var(--required)}
+  .mock{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--rule);background:var(--rule-soft);padding:2px 7px;border-radius:6px}
+
+  body:not(.inspect) .rail{display:none}
+  body:not(.inspect) .repo{display:none}
+  body:not(.inspect) .field-label .kind{display:none}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(20,25,40,.45);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .overlay.open{display:flex;animation:fade .15s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .modal{background:var(--surface);border-radius:16px;width:100%;max-width:460px;max-height:88vh;overflow-y:auto;box-shadow:0 24px 60px -20px rgba(20,25,40,.5);animation:pop .18s ease}
+  @keyframes pop{from{transform:translateY(8px) scale(.98);opacity:0}to{transform:none;opacity:1}}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:18px 20px 12px}
+  .modal-head h3{margin:0;font-size:16px;font-weight:600}
+  .modal-head .mk{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:3px}
+  .modal-close{cursor:pointer;border:none;background:none;font-size:20px;color:var(--faint);line-height:1}
+  .modal-body{padding:4px 20px 8px}
+  .modal-body .efield{margin-bottom:14px}
+  .modal-foot{display:flex;justify-content:flex-end;gap:9px;padding:14px 20px 20px}
+
+  footer.page{margin-top:30px;font-size:12.5px;color:var(--muted);text-align:center;line-height:1.7}
+  footer.page code{font-family:var(--mono);font-size:11.5px;background:var(--surface);padding:1px 6px;border-radius:5px;border:1px solid var(--line)}
+
+  @media (max-width:560px){
+    .wrap{padding:24px 14px 60px}.titles h1{font-size:22px}
+    header.page{align-items:flex-start}.repo-grid{grid-template-columns:1fr}
+    .entry-view{flex-direction:column;align-items:flex-start}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body class="inspect">
+<div class="wrap">
+
+  <header class="page">
+    <div class="titles">
+      <h1>Beneficial Owner Form Renderer</h1>
+      <p>A <strong>nested, repeatable</strong> childform. The list below is the live <code style="font-family:var(--mono);font-size:12px">CHILDFORM</code> field — add entries (capped at 10), each with an address popup (capped at 1).</p>
+      <div class="ctx" id="ctx"></div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="inspectToggle" checked />
+      <span class="track"></span>
+      <span>Inspect schema</span>
+    </label>
+  </header>
+
+  <div class="legend" aria-hidden="true">
+    <span class="li"><span class="swatch" style="background:var(--surface-2);border:1px solid var(--line)"></span>field metadata</span>
+    <span class="li"><span class="swatch" style="background:var(--repo-soft);border:1px solid var(--repo)"></span>repository</span>
+    <span class="li"><span class="swatch" style="background:var(--cond-soft);border:1px solid var(--cond)"></span>child / cap</span>
+    <span class="li"><span class="swatch" style="background:var(--rule-soft);border:1px solid var(--rule)"></span>validation</span>
+    <span class="li"><span class="swatch" style="background:var(--lookup-soft);border:1px solid var(--lookup)"></span>parameterType</span>
+  </div>
+
+  <div class="structure">
+    <b>How this schema nests.</b> One child entry has two layouts — <b>simple_forms</b> is the form you fill in, <b>filled_forms</b> is how a saved entry is shown. Inside the input form, a <b>POPUP</b> field opens the address sub-form.
+    <div class="tree"><span class="fk">FORM_BOC</span>  <span class="ty">field: FI_CHILDFORM (CHILDFORM)</span>
+└─ childform  <span class="cap">max 10</span>
+   ├─ simple_forms  <span class="fk">FO_BOC_INFO</span>      <span class="ty">← add / edit</span>
+   │  ├─ FI_NAME · FI_PHONE · FI_NIK · FI_ID_UPLOAD · FI_ADD_ADDRESS
+   │  └─ childform  <span class="cap">max 1</span>
+   │     └─ popup_forms  <span class="fk">FORM_BO_ADDRESS</span>  <span class="ty">← address popup</span>
+   │        └─ FIELD_LOCATION (repo) · FIELD_DETAIL_ADDRESS
+   └─ filled_forms  <span class="fk">FO_BOC_INFO_COMPLETED</span>  <span class="ty">← saved display</span>
+      └─ FI_NAME · FI_NATIONALITY · FI_NIK · FIELD_GENDER · FI_EMAIL · FI_PHONE</div>
+  </div>
+
+  <form id="form" autocomplete="off"></form>
+
+  <footer class="page">
+    Generated from <code>FORM_BOC</code>. Province list is a mock sample for <code>OBS /v1/masters/provinces</code>.<br>
+    The completed layout below is rendered from <code>FO_BOC_INFO_COMPLETED</code> with sample values.
+  </footer>
+</div>
+
+<!-- modal mount -->
+<div class="overlay" id="overlay" role="dialog" aria-modal="true">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ *  1. Schema (cleaned: Male/Female titles quoted)                    *
+ * ------------------------------------------------------------------ */
+const SCHEMA = {
+  formKey: "FORM_BOC",
+  fields: [{ fieldKey: "FI_CHILDFORM", fieldType: "CHILDFORM", dataType: "NOT_APPLICABLE" }],
+  childform: {
+    max_number_of_child: 10,
+    simple_forms: {
+      formKey: "FO_BOC_INFO",
+      fields: [
+        { fieldKey: "FI_NAME",  fieldType: "FREE_TEXT", dataType: "STRING" },
+        { fieldKey: "FI_PHONE", fieldType: "FREE_TEXT", dataType: "STRING" },
+        { fieldKey: "FI_NIK",   fieldType: "FREE_TEXT", dataType: "STRING" },
+        { fieldKey: "FI_ID_UPLOAD", fieldType: "FILE_UPLOAD", dataType: "STRING" },
+        { fieldKey: "FI_ADD_ADDRESS", fieldType: "POPUP", dataType: "NOT_APPLICABLE" }
+      ],
+      childform: {
+        max_number_of_child: 1,
+        popup_forms: {
+          formKey: "FORM_BO_ADDRESS",
+          fields: [
+            { fieldKey: "FIELD_LOCATION", fieldType: "DROP_DOWN_COMPOSITE", dataType: "STRING",
+              validations: [{ type:"STRING", minLength:3, maxLength:100, stringType:"ALPHA_NUMERIC_SPECIAL",
+                stringGuardMode:["ALLOW_SPACE","NO_DOUBLE_SPACE"], characters:[".",","] }],
+              repository: { fieldTmId:"FIELD_LOCATION", parameterType:"PROVINCE",
+                fieldRepositoryTmKey:"provinces.list", sourceApplication:"OBS", sourceUrl:"/v1/masters/provinces" } },
+            { fieldKey: "FIELD_DETAIL_ADDRESS", fieldType: "FREE_TEXT", dataType: "STRING" }
+          ]
+        }
+      }
+    },
+    filled_forms: {
+      formKey: "FO_BOC_INFO_COMPLETED",
+      fields: [
+        { fieldKey: "FI_NAME",        fieldType: "FREE_TEXT", dataType: "STRING" },
+        { fieldKey: "FI_NATIONALITY", fieldType: "FREE_TEXT", dataType: "STRING" },
+        { fieldKey: "FI_NIK",         fieldType: "FREE_TEXT", dataType: "STRING" },
+        { fieldKey: "FIELD_GENDER",   fieldType: "RADIO_BUTTON", dataType: "STRING", parameterType: "GENDER",
+          options: [{ code:"0", title:"Male" }, { code:"1", title:"Female" }] },
+        { fieldKey: "FI_EMAIL",       fieldType: "FREE_TEXT", dataType: "STRING" },
+        { fieldKey: "FI_PHONE",       fieldType: "FREE_TEXT", dataType: "STRING" }
+      ]
+    }
+  }
+};
+
+// mock for OBS /v1/masters/provinces  (repository: provinces.list)
+const PROVINCE_REPO_DATA = [
+  { code:"31", name:"DKI Jakarta" }, { code:"32", name:"Jawa Barat" },
+  { code:"33", name:"Jawa Tengah" }, { code:"34", name:"DI Yogyakarta" },
+  { code:"35", name:"Jawa Timur" },  { code:"36", name:"Banten" },
+  { code:"51", name:"Bali" },        { code:"12", name:"Sumatera Utara" }
+];
+
+// sample values for the FO_BOC_INFO_COMPLETED display layout
+const FILLED_SAMPLE = {
+  FI_NAME:"Andi Wijaya", FI_NATIONALITY:"Indonesia", FI_NIK:"3174xxxxxxxx0007",
+  FIELD_GENDER:"0", FI_EMAIL:"andi.wijaya@example.com", FI_PHONE:"+62 812-3456-7890"
+};
+
+/* ------------------------------------------------------------------ *
+ *  2. Helpers                                                        *
+ * ------------------------------------------------------------------ */
+const el = (t,c,x)=>{const n=document.createElement(t);if(c)n.className=c;if(x!=null)n.textContent=x;return n;};
+function humanize(k){
+  let s = k.replace(/^(FIELD_|FI_|FO_)/,"").toLowerCase().split("_")
+    .map(w=>w[0].toUpperCase()+w.slice(1)).join(" ");
+  return s.replace(/\bNik\b/,"NIK").replace(/\bId\b/,"ID");
+}
+const tag=(cls,k,v)=>{const t=el("span","tag "+cls);if(k)t.appendChild(el("span","k",k+" "));t.appendChild(document.createTextNode(v));return t;};
+let uid=0;const nextId=()=>"f"+(++uid);
+
+function buildRepoCallout(repo){
+  const box=el("div","repo");
+  box.appendChild(el("div","repo-head","Repository — loaded at runtime"));
+  const dl=el("dl","repo-grid");
+  const row=(k,v)=>{dl.appendChild(el("dt",null,k));dl.appendChild(el("dd",null,v));};
+  row("sourceApplication",repo.sourceApplication);
+  row("fieldRepositoryTmKey",repo.fieldRepositoryTmKey);
+  row("parameterType",repo.parameterType);
+  row("sourceUrl",repo.sourceUrl);
+  box.appendChild(dl);return box;
+}
+function buildRail(field, extra){
+  const rail=el("div","rail");
+  rail.appendChild(tag("meta","key",field.fieldKey));
+  rail.appendChild(tag("meta","type",field.fieldType));
+  rail.appendChild(tag("meta","data",field.dataType));
+  if(field.parameterType) rail.appendChild(tag("lookup","param",field.parameterType));
+  if(field.repository){
+    rail.appendChild(tag("repo","repo",field.repository.fieldRepositoryTmKey));
+    rail.appendChild(tag("repo","param",field.repository.parameterType));
+  }
+  const v=field.validations&&field.validations[0];
+  if(v){
+    if(v.minLength!=null&&v.maxLength!=null) rail.appendChild(tag("rule",null,v.minLength+"–"+v.maxLength+" chars"));
+    if(v.stringType) rail.appendChild(tag("rule",null,v.stringType));
+    (v.stringGuardMode||[]).forEach(g=>rail.appendChild(tag("rule",null,g)));
+    if(v.characters&&v.characters.length) rail.appendChild(tag("rule",null,"allows "+v.characters.join(" ")));
+  }
+  (extra||[]).forEach(t=>rail.appendChild(t));
+  return rail;
+}
+
+/* small labelled control used inside entries & modals */
+function compactField(field, store){
+  const wrap=el("div","efield");
+  const lab=el("div","elabel");
+  lab.appendChild(document.createTextNode(humanize(field.fieldKey)));
+  lab.appendChild(el("span","etype",field.fieldType.replace(/_/g," ")));
+  wrap.appendChild(lab);
+
+  if(field.fieldType==="FREE_TEXT"){
+    const i=el("input","ctrl");i.type="text";i.placeholder="Enter "+humanize(field.fieldKey).toLowerCase();
+    if(store) i.value=store[field.fieldKey]||"";
+    i.addEventListener("input",()=>{if(store)store[field.fieldKey]=i.value;});
+    wrap.appendChild(i);
+  } else if(field.fieldType==="DROP_DOWN_COMPOSITE"){
+    const s=el("select","ctrl");
+    const ph=el("option",null,"Select province");ph.value="";s.appendChild(ph);
+    PROVINCE_REPO_DATA.forEach(p=>{const o=el("option",null,p.code+" — "+p.name);o.value=p.code;s.appendChild(o);});
+    if(store&&store[field.fieldKey])s.value=store[field.fieldKey];
+    s.addEventListener("change",()=>{if(store)store[field.fieldKey]=s.value;});
+    wrap.appendChild(s);
+    const meta=el("div");meta.style.cssText="font-family:var(--mono);font-size:10px;color:var(--repo);margin-top:6px";
+    meta.textContent="GET "+field.repository.sourceApplication+" "+field.repository.sourceUrl;
+    const mk=el("span","mock","sample");mk.style.marginLeft="8px";meta.appendChild(mk);
+    wrap.appendChild(meta);
+  } else if(field.fieldType==="FILE_UPLOAD"){
+    const box=el("div","file");
+    const id=nextId();
+    const btn=el("label","file-btn");btn.setAttribute("for",id);
+    btn.appendChild(document.createTextNode("⬆  Choose file"));
+    const inp=el("input");inp.type="file";inp.id=id;
+    const name=el("span","file-empty","No file selected");
+    inp.addEventListener("change",()=>{
+      if(inp.files.length){
+        name.className="file-name";name.innerHTML="";
+        name.appendChild(document.createTextNode(inp.files[0].name));
+        const x=el("span","x","✕");x.title="Remove";
+        x.addEventListener("click",()=>{inp.value="";name.className="file-empty";name.textContent="No file selected";});
+        name.appendChild(x);
+        if(store)store[field.fieldKey]=inp.files[0].name;
+      }
+    });
+    box.appendChild(btn);box.appendChild(inp);box.appendChild(name);
+    wrap.appendChild(box);
+  } else if(field.fieldType==="RADIO_BUTTON"){
+    const list=el("div","opt-list");const g=nextId();
+    field.options.forEach(o=>{
+      const lab2=el("label","opt");
+      const r=el("input");r.type="radio";r.name=g;r.value=o.code;
+      if(store&&store[field.fieldKey]===o.code)r.checked=true;
+      r.addEventListener("change",()=>{if(store)store[field.fieldKey]=o.code;});
+      const tx=el("span","opt-text");tx.appendChild(document.createTextNode(o.title));
+      tx.appendChild(el("span","code","code "+o.code));
+      lab2.appendChild(r);lab2.appendChild(tx);list.appendChild(lab2);
+    });
+    wrap.appendChild(list);
+  }
+  return wrap;
+}
+
+/* ------------------------------------------------------------------ *
+ *  3. Modal helper                                                   *
+ * ------------------------------------------------------------------ */
+const overlay=document.getElementById("overlay");
+const modal=document.getElementById("modal");
+function openModal(title, subKey, bodyNode, onSave){
+  modal.innerHTML="";
+  const head=el("div","modal-head");
+  const ht=el("div");ht.appendChild(el("h3",null,title));if(subKey)ht.appendChild(el("div","mk",subKey));
+  const close=el("button","modal-close","✕");close.addEventListener("click",hideModal);
+  head.appendChild(ht);head.appendChild(close);
+  const body=el("div","modal-body");body.appendChild(bodyNode);
+  const foot=el("div","modal-foot");
+  const cancel=el("button","btn btn-ghost","Cancel");cancel.addEventListener("click",hideModal);
+  const save=el("button","btn btn-primary","Save address");save.addEventListener("click",()=>{onSave();hideModal();});
+  foot.appendChild(cancel);foot.appendChild(save);
+  modal.appendChild(head);modal.appendChild(body);modal.appendChild(foot);
+  overlay.classList.add("open");
+  const f=body.querySelector("input,select");if(f)f.focus();
+}
+function hideModal(){overlay.classList.remove("open");}
+overlay.addEventListener("click",e=>{if(e.target===overlay)hideModal();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")hideModal();});
+
+/* ------------------------------------------------------------------ *
+ *  4. CHILDFORM manager                                              *
+ * ------------------------------------------------------------------ */
+function renderChildform(card, cf){
+  const max=cf.max_number_of_child;
+  const simple=cf.simple_forms;
+  const addrCfg=simple.childform;            // {max_number_of_child:1, popup_forms}
+  const entries=[];                          // {id, values:{}, address:null, mode}
+
+  const bar=el("div","cf-bar");
+  const count=el("div","cf-count");
+  const addBtn=el("button","btn btn-primary","+ Add beneficial owner");
+  bar.appendChild(count);bar.appendChild(addBtn);
+  const listEl=el("div");
+  card.appendChild(bar);card.appendChild(listEl);
+
+  function refresh(){
+    count.innerHTML="";
+    count.appendChild(el("b",null,String(entries.length)));
+    count.appendChild(document.createTextNode(" of "+max+" added"));
+    addBtn.disabled=entries.length>=max;
+    listEl.innerHTML="";
+    if(!entries.length){listEl.appendChild(el("div","cf-empty","No beneficial owners yet. Add up to "+max+"."));return;}
+    entries.forEach((en,i)=>listEl.appendChild(en.mode==="edit"?renderEdit(en,i):renderView(en,i)));
+  }
+
+  function renderEdit(en,i){
+    const box=el("div","entry");
+    const body=el("div","entry-edit");
+    simple.fields.forEach(f=>{
+      if(f.fieldType==="POPUP"){ body.appendChild(renderAddressZone(en,f)); return; }
+      body.appendChild(compactField(f,en.values));
+    });
+    const acts=el("div","entry-actions");
+    const save=el("button","btn btn-primary","Save");
+    save.addEventListener("click",()=>{en.mode="view";refresh();});
+    const remove=el("button","btn btn-danger","Remove");
+    remove.addEventListener("click",()=>{entries.splice(i,1);refresh();});
+    acts.appendChild(save);acts.appendChild(remove);
+    body.appendChild(acts);
+    box.appendChild(body);return box;
+  }
+
+  function renderAddressZone(en,popupField){
+    const z=el("div","addr-zone");
+    const h=el("div","azhead");
+    h.appendChild(document.createTextNode(humanize(popupField.fieldKey)));
+    h.appendChild(tag("cond",null,"max "+addrCfg.max_number_of_child));
+    h.appendChild(tag("meta","form",addrCfg.popup_forms.formKey));
+    z.appendChild(h);
+
+    if(en.address){
+      const prov=PROVINCE_REPO_DATA.find(p=>p.code===en.address.FIELD_LOCATION);
+      const c=el("div","addr-card");
+      const at=el("div","at");
+      at.appendChild(el("div","prov",prov?prov.code+" — "+prov.name:"—"));
+      at.appendChild(el("div","det",en.address.FIELD_DETAIL_ADDRESS||"(no detail)"));
+      const x=el("span","ax","✕");x.title="Remove address";
+      x.addEventListener("click",()=>{en.address=null;refresh();});
+      c.appendChild(at);c.appendChild(x);z.appendChild(c);
+    }
+
+    const addr=el("button","btn btn-ghost",en.address?"Edit address":"+ Add address");
+    addr.disabled=!en.address && false; // single address; allow edit when present
+    addr.addEventListener("click",()=>openAddressModal(en));
+    z.appendChild(addr);
+    return z;
+  }
+
+  function openAddressModal(en){
+    const draft=Object.assign({},en.address||{});
+    const body=el("div");
+    addrCfg.popup_forms.fields.forEach(f=>body.appendChild(compactField(f,draft)));
+    // show repository detail for FIELD_LOCATION inside modal
+    const repoField=addrCfg.popup_forms.fields.find(f=>f.repository);
+    if(repoField) body.appendChild(buildRepoCallout(repoField.repository));
+    openModal("Add address","FORM_BO_ADDRESS",body,()=>{en.address=draft;refresh();});
+  }
+
+  function renderView(en,i){
+    const box=el("div","entry");
+    const v=el("div","entry-view");
+    const main=el("div","ev-main");
+    const nameRow=el("div","ev-name");
+    nameRow.appendChild(Object.assign(el("span","entry-idx"),{textContent:"#"+(i+1)}));
+    nameRow.appendChild(document.createTextNode(en.values.FI_NAME||"Unnamed owner"));
+    main.appendChild(nameRow);
+    const bits=[];
+    if(en.values.FI_NIK) bits.push("NIK "+en.values.FI_NIK);
+    if(en.values.FI_PHONE) bits.push(en.values.FI_PHONE);
+    if(en.address){const p=PROVINCE_REPO_DATA.find(x=>x.code===en.address.FIELD_LOCATION);bits.push("📍 "+(p?p.name:"address"));}
+    if(en.values.FI_ID_UPLOAD) bits.push("ID: "+en.values.FI_ID_UPLOAD);
+    main.appendChild(el("div","ev-sub",bits.join("  ·  ")||"No details captured"));
+    const acts=el("div","ev-actions");
+    const edit=el("button","btn btn-ghost","Edit");
+    edit.addEventListener("click",()=>{en.mode="edit";refresh();});
+    const rem=el("button","btn btn-danger","Remove");
+    rem.addEventListener("click",()=>{entries.splice(i,1);refresh();});
+    acts.appendChild(edit);acts.appendChild(rem);
+    v.appendChild(main);v.appendChild(acts);box.appendChild(v);return box;
+  }
+
+  addBtn.addEventListener("click",()=>{
+    if(entries.length>=max)return;
+    entries.push({id:nextId(),values:{},address:null,mode:"edit"});
+    refresh();
+  });
+  refresh();
+}
+
+/* ------------------------------------------------------------------ *
+ *  5. Boot                                                           *
+ * ------------------------------------------------------------------ */
+(function init(){
+  const ctx=document.getElementById("ctx");
+  ctx.appendChild(tag("meta","form",SCHEMA.formKey));
+  ctx.appendChild(tag("cond","child max",String(SCHEMA.childform.max_number_of_child)));
+  const form=document.getElementById("form");
+
+  // --- CHILDFORM field (live, repeatable) ---
+  form.appendChild(el("div","formgroup-title","FORM_BOC › FI_CHILDFORM"));
+  const cfCard=el("div","field");
+  const cfLabel=el("div","field-label");
+  cfLabel.appendChild(document.createTextNode("Beneficial Owners & Controllers"));
+  cfLabel.appendChild(el("span","kind","CHILDFORM"));
+  cfCard.appendChild(cfLabel);
+  renderChildform(cfCard, SCHEMA.childform);
+  cfCard.appendChild(buildRail(SCHEMA.fields[0], [
+    tag("cond","max",String(SCHEMA.childform.max_number_of_child)),
+    tag("meta","input",SCHEMA.childform.simple_forms.formKey),
+    tag("meta","display",SCHEMA.childform.filled_forms.formKey)
+  ]));
+  form.appendChild(cfCard);
+
+  // --- filled_forms display layout (rendered with sample values) ---
+  form.appendChild(el("div","formgroup-title","filled_forms · FO_BOC_INFO_COMPLETED"));
+  const ff=SCHEMA.childform.filled_forms;
+  const ffCard=el("div","field");
+  const ffLabel=el("div","field-label");
+  ffLabel.appendChild(document.createTextNode("Completed entry layout"));
+  ffLabel.appendChild(el("span","mock","sample values"));
+  ffCard.appendChild(ffLabel);
+  const grid=el("div","read-grid");
+  ff.fields.forEach(f=>{
+    const rf=el("div","rf");
+    const lab=el("div","rfl");
+    lab.appendChild(document.createTextNode(humanize(f.fieldKey)));
+    lab.appendChild(el("span","rftype",f.fieldType.replace(/_/g," ")));
+    rf.appendChild(lab);
+    if(f.fieldType==="RADIO_BUTTON"){
+      const seed={};seed[f.fieldKey]=FILLED_SAMPLE[f.fieldKey];
+      rf.appendChild(compactField(f,seed));
+    } else {
+      const i=el("input","ctrl");i.type="text";i.value=FILLED_SAMPLE[f.fieldKey]||"";
+      i.style.maxWidth="100%";
+      rf.appendChild(i);
+    }
+    grid.appendChild(rf);
+  });
+  ffCard.appendChild(grid);
+  ffCard.appendChild(buildRail({fieldKey:ff.formKey,fieldType:"FILLED_FORM",dataType:"FORM"}, [tag("meta","fields",String(ff.fields.length))]));
+  form.appendChild(ffCard);
+
+  const toggle=document.getElementById("inspectToggle");
+  toggle.addEventListener("change",()=>document.body.classList.toggle("inspect",toggle.checked));
+})();
+</script>
+</body>
+</html>
