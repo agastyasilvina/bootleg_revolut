@@ -4,9 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Beneficial Owner Form Renderer — nested childform</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- No external fonts: fully self-contained, works offline / from file:// -->
 <style>
   :root{
     --bg:#EAEDF2;--surface:#FFFFFF;--surface-2:#F6F7FA;
@@ -213,6 +211,7 @@
   </div>
 
   <form id="form" autocomplete="off"></form>
+  <noscript><div style="margin:20px;padding:16px;border:1px solid #F0C9C4;background:#FBE9E7;color:#B42318;border-radius:11px;font-family:sans-serif">This page builds its form with JavaScript, which is turned off or not supported by whatever is showing this file. Open it in a web browser (Chrome, Firefox, Edge, Safari).</div></noscript>
 
   <footer class="page">
     Generated from <code>FORM_BOC</code>. Province list is a mock sample for <code>OBS /v1/masters/provinces</code>.<br>
@@ -528,6 +527,10 @@ function renderChildform(card, cf){
  *  5. Boot                                                           *
  * ------------------------------------------------------------------ */
 (function init(){
+ try{
+  // buttons live inside <form>; stop any submit from reloading the page (which would reset state to 0)
+  const formEl0=document.getElementById("form");
+  if(formEl0) formEl0.addEventListener("submit",e=>e.preventDefault());
   const ctx=document.getElementById("ctx");
   ctx.appendChild(tag("meta","form",SCHEMA.formKey));
   ctx.appendChild(tag("cond","child max",String(SCHEMA.childform.max_number_of_child)));
@@ -579,6 +582,13 @@ function renderChildform(card, cf){
 
   const toggle=document.getElementById("inspectToggle");
   toggle.addEventListener("change",()=>document.body.classList.toggle("inspect",toggle.checked));
+ }catch(err){
+  const banner=document.createElement("div");
+  banner.style.cssText="margin:20px;padding:16px 18px;border:1px solid #F0C9C4;background:#FBE9E7;color:#B42318;border-radius:11px;font-family:monospace;font-size:13px;white-space:pre-wrap";
+  banner.textContent="The form script hit an error and stopped:\n\n"+(err&&err.stack?err.stack:err)+"\n\nIf you see this, JavaScript IS running — please send this message back.";
+  (document.getElementById("form")||document.body).appendChild(banner);
+  console.error(err);
+ }
 })();
 </script>
 </body>
