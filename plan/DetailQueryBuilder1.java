@@ -1,10 +1,7 @@
 package com.example.dynamicquery;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -71,37 +68,36 @@ public final class DetailQueryBuilder {
     }
 
     /**
-     * A child-row filter. Exactly one of {@code literal} / {@code param} is set:
-     *   literal -> value comes from config, bound under a generated name
-     *   param   -> value is supplied per request, bound by the caller
+     * A child-row filter. The value comes from deploy-time config and is rendered
+     * into the statement as a literal.
+     *
+     * SECURITY: literal() is the trust boundary. Everything reaching it must come
+     * from configuration reviewed in a PR -- never from a request. There is
+     * deliberately no runtime-value variant, so there is no path from an HTTP
+     * parameter into the statement text.
      */
-    public record Filter(String column, Op op, Object literal, String param) {
+    public record Filter(String column, Op op, Object value) {
 
-        /** Config-time constant, e.g. status = 'ACTIVE'. */
+        /** e.g. status = 'ACTIVE' */
         public static Filter eq(String column, Object value) {
-            return new Filter(column, Op.EQ, value, null);
+            return new Filter(column, Op.EQ, value);
         }
 
         public static Filter cmp(String column, Op op, Object value) {
-            return new Filter(column, op, value, null);
+            return new Filter(column, op, value);
         }
 
-        /** Config-time IN list. */
+        /** e.g. category IN ('KYC', 'CONTRACT') */
         public static Filter in(String column, List<?> values) {
-            return new Filter(column, Op.IN, values, null);
+            return new Filter(column, Op.IN, values);
         }
 
         public static Filter isNull(String column) {
-            return new Filter(column, Op.IS_NULL, null, null);
+            return new Filter(column, Op.IS_NULL, null);
         }
 
         public static Filter isNotNull(String column) {
-            return new Filter(column, Op.IS_NOT_NULL, null, null);
-        }
-
-        /** Value supplied at request time; caller must bind this name. */
-        public static Filter param(String column, Op op, String paramName) {
-            return new Filter(column, op, null, paramName);
+            return new Filter(column, Op.IS_NOT_NULL, null);
         }
     }
 
@@ -155,26 +151,17 @@ public final class DetailQueryBuilder {
             List<Child> children) {
     }
 
-    /**
-     * Result of generation. {@code binds} are config-derived values the registry
-     * applies for you; {@code runtimeParams} are names the caller must supply.
-     */
-    public record Generated(String sql, Map<String, Object> binds, Set<String> runtimeParams) {
-    }
-
     // ------------------------------------------------------------------
     // Generation
     // ------------------------------------------------------------------
 
-    public static Generated build(DetailSpec spec) {
+    public static String build(DetailSpec spec) {
         String root = ident(spec.rootAlias(), "root alias");
         ident(spec.rootTable(), "root table");
         String pk = ident(spec.pk(), "primary key column");
 
         List<String> select = new ArrayList<>();
         List<String> from = new ArrayList<>();
-        Map<String, Object> binds = new LinkedHashMap<>();
-        Set<String> runtimeParams = new LinkedHashSet<>();
 
         for (Column c : spec.rootColumns()) {
             select.add("    %s.%s AS %s".formatted(root, ident(c.column(), "column"), ident(c.alias(), "alias")));
@@ -194,16 +181,14 @@ public final class DetailQueryBuilder {
         for (Child child : spec.children()) {
             String lateralAlias = "_c" + i++;          // generated: cannot collide with user aliases
             select.add("    " + selectExpr(child, lateralAlias));
-            from.add(lateral(child, lateralAlias, root, pk, binds, runtimeParams));
+            from.add(lateral(child, lateralAlias, root, pk));
         }
 
-        String sql = "SELECT\n"
+        return "SELECT\n"
                 + String.join(",\n", select) + "\n"
                 + "FROM " + spec.rootTable() + " " + root + "\n"
                 + (from.isEmpty() ? "" : String.join("\n", from) + "\n")
                 + "WHERE " + root + "." + pk + " = :id";
-
-        return new Generated(sql, Map.copyOf(binds), Set.copyOf(runtimeParams));
     }
 
     private static String selectExpr(Child child, String lateralAlias) {
@@ -216,8 +201,7 @@ public final class DetailQueryBuilder {
         return "COALESCE(%s.items, '[]'::jsonb)::text AS %s".formatted(lateralAlias, key);
     }
 
-    private static String lateral(Child child, String lateralAlias, String root, String pk,
-                                  Map<String, Object> binds, Set<String> runtimeParams) {
+    private static String lateral(Child child, String lateralAlias, String root, String pk) {
         String table = ident(child.table(), "child table");
         String fk = ident(child.fk(), "child fk");
         String s = "_s";
@@ -230,9 +214,8 @@ public final class DetailQueryBuilder {
         // Filters + LIMIT need their own scope, otherwise LIMIT would apply after aggregation.
         boolean windowed = child.limit() != null;
         String source = windowed
-                ? innerSelect(child, s, root, pk, fk, order, binds, runtimeParams, lateralAlias)
-                : "%s %s\n    WHERE %s".formatted(table, s,
-                        predicates(child, s, root, pk, fk, binds, runtimeParams, lateralAlias));
+                ? innerSelect(child, s, root, pk, fk, order)
+                : "%s %s\n    WHERE %s".formatted(table, s, predicates(child, s, root, pk, fk));
 
         String agg = aggregate(child, s, windowed ? "" : order);
 
@@ -245,8 +228,7 @@ public final class DetailQueryBuilder {
 
     /** Sub-select used when LIMIT is present: filter+order+limit first, aggregate after. */
     private static String innerSelect(Child child, String s, String root, String pk, String fk,
-                                      String order, Map<String, Object> binds,
-                                      Set<String> runtimeParams, String lateralAlias) {
+                                      String order) {
         String cols = child.columns().stream()
                 .map(c -> s + "." + ident(c.column(), "column"))
                 .collect(Collectors.joining(", "));
@@ -257,7 +239,7 @@ public final class DetailQueryBuilder {
                         WHERE %s%s
                         LIMIT %d
                     ) %s""".formatted(cols, ident(child.table(), "child table"), s,
-                predicates(child, s, root, pk, fk, binds, runtimeParams, lateralAlias),
+                predicates(child, s, root, pk, fk),
                 order, child.limit(), s);
     }
 
@@ -272,32 +254,66 @@ public final class DetailQueryBuilder {
         return "jsonb_agg(jsonb_build_object(%s)%s)".formatted(pairs, order);
     }
 
-    private static String predicates(Child child, String s, String root, String pk, String fk,
-                                     Map<String, Object> binds, Set<String> runtimeParams,
-                                     String lateralAlias) {
+    private static String predicates(Child child, String s, String root, String pk, String fk) {
         List<String> parts = new ArrayList<>();
         parts.add("%s.%s = %s.%s".formatted(s, fk, root, pk));   // the correlation, always present
 
-        int p = 0;
         for (Filter f : child.filters()) {
             String col = s + "." + ident(f.column(), "filter column");
             if (!f.op().takesValue()) {
                 parts.add("%s %s".formatted(col, f.op().sql));
-                continue;
-            }
-            String name;
-            if (f.param() != null) {
-                name = param(f.param());
-                runtimeParams.add(name);
+            } else if (f.op() == Op.IN) {
+                if (!(f.value() instanceof List<?> values) || values.isEmpty()) {
+                    throw new IllegalArgumentException("IN filter on " + f.column() + " needs a non-empty list");
+                }
+                parts.add("%s IN (%s)".formatted(col,
+                        values.stream().map(DetailQueryBuilder::literal).collect(Collectors.joining(", "))));
             } else {
-                name = lateralAlias + "_p" + p++;
-                binds.put(name, f.literal());
+                parts.add("%s %s %s".formatted(col, f.op().sql, literal(f.value())));
             }
-            parts.add(f.op() == Op.IN
-                    ? "%s IN (:%s)".formatted(col, name)
-                    : "%s %s :%s".formatted(col, f.op().sql, name));
         }
         return String.join("\n      AND ", parts);
+    }
+
+    /**
+     * Renders a config value as a SQL literal. Accepts a deliberately narrow set
+     * of types -- anything else throws rather than being coerced via toString().
+     */
+    private static String literal(Object value) {
+        if (value == null) {
+            throw new IllegalArgumentException("Null literal: use isNull()/isNotNull() instead");
+        }
+        if (value instanceof Boolean b) {
+            return b.toString();
+        }
+        if (value instanceof Integer || value instanceof Long || value instanceof Short
+                || value instanceof java.math.BigInteger) {
+            return value.toString();
+        }
+        if (value instanceof java.math.BigDecimal d) {
+            return d.toPlainString();
+        }
+        if (value instanceof java.time.LocalDate d) {
+            return "DATE '" + d + "'";
+        }
+        if (value instanceof java.time.Instant i) {
+            return "TIMESTAMPTZ '" + i + "'";
+        }
+        if (value instanceof Enum<?> e) {
+            return quote(e.name());
+        }
+        if (value instanceof String s) {
+            return quote(s);
+        }
+        // Float/Double omitted on purpose: text round-tripping loses precision.
+        throw new IllegalArgumentException("Unsupported literal type: " + value.getClass().getName());
+    }
+
+    private static String quote(String s) {
+        if (s.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("NUL byte in literal");
+        }
+        return "'" + s.replace("'", "''") + "'";   // standard_conforming_strings is on by default
     }
 
     // ------------------------------------------------------------------
@@ -353,8 +369,7 @@ public final class DetailQueryBuilder {
                                         Column.of("column_a", "columnA"),
                                         Column.of("column_b", "columnB"))
                                 .where(Filter.eq("status", "ACTIVE"),
-                                        Filter.isNull("deleted_at"),
-                                        Filter.param("doc_type", Op.EQ, "docType")),
+                                        Filter.isNull("deleted_at")),
                         // top-N child: ten most recent, newest first
                         Child.objects("audit_logs", "audit_log", "application_id", "created_at",
                                         Column.of("action", "action"),
@@ -367,9 +382,6 @@ public final class DetailQueryBuilder {
     }
 
     public static void main(String[] args) {
-        Generated g = build(exampleSpec());
-        System.out.println(g.sql());
-        System.out.println("\n-- config binds : " + g.binds());
-        System.out.println("-- caller binds : " + g.runtimeParams());
+        System.out.println(build(exampleSpec()));
     }
 }
