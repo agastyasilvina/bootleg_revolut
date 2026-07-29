@@ -55,6 +55,13 @@ public final class DetailQueryBuilder {
     // Spec model
     // ------------------------------------------------------------------
 
+    /** Appending combiner, so fluent calls compose instead of clobbering each other. */
+    private static List<Filter> concat(List<Filter> existing, Filter... extra) {
+        List<Filter> merged = new ArrayList<>(existing);
+        merged.addAll(List.of(extra));
+        return List.copyOf(merged);
+    }
+
     public record Column(String column, String alias) {
         public static Column of(String column, String alias) {
             return new Column(column, alias);
@@ -130,8 +137,10 @@ public final class DetailQueryBuilder {
             return new UniqueJoin(table, alias, fk, parentAlias, parentKey, List.of(columns), List.of());
         }
 
+        /** Appends, like Child.where(). */
         public UniqueJoin on(Filter... extra) {
-            return new UniqueJoin(table, alias, fk, parentAlias, parentKey, columns, List.of(extra));
+            return new UniqueJoin(table, alias, fk, parentAlias, parentKey, columns,
+                    concat(this.conditions, extra));
         }
 
         /**
@@ -141,9 +150,8 @@ public final class DetailQueryBuilder {
          * available so the guard below stays satisfiable if that changes.
          */
         public UniqueJoin polymorphic(String typeColumn, Enum<?> type) {
-            List<Filter> merged = new java.util.ArrayList<>(conditions);
-            merged.add(Filter.eq(typeColumn, type));
-            return new UniqueJoin(table, alias, fk, parentAlias, parentKey, columns, List.copyOf(merged));
+            return new UniqueJoin(table, alias, fk, parentAlias, parentKey, columns,
+                    concat(this.conditions, Filter.eq(typeColumn, type)));
         }
     }
 
@@ -193,8 +201,9 @@ public final class DetailQueryBuilder {
                     orderBy, desc, lim, f, c, pAlias, pKey);
         }
 
-        public Child where(Filter... filters) {
-            return with(List.of(filters), children, limit, descending, parentAlias, parentKey);
+        /** Appends. Safe to call more than once, and in any order relative to polymorphic(). */
+        public Child where(Filter... extra) {
+            return with(concat(this.filters, extra), children, limit, descending, parentAlias, parentKey);
         }
 
         public Child newestFirst(int limit) {
@@ -215,9 +224,8 @@ public final class DetailQueryBuilder {
          * see assertDiscriminated().
          */
         public Child polymorphic(String typeColumn, Enum<?> type) {
-            List<Filter> merged = new java.util.ArrayList<>(filters);
-            merged.add(Filter.eq(typeColumn, type));
-            return with(List.copyOf(merged), children, limit, descending, parentAlias, parentKey);
+            return with(concat(this.filters, Filter.eq(typeColumn, type)),
+                    children, limit, descending, parentAlias, parentKey);
         }
 
         /** Nest another level: person.having(edd, documents). */
@@ -451,8 +459,9 @@ public final class DetailQueryBuilder {
      * integer. Applies to 1:1 joins exactly as much as to 1:many children.
      */
     private static void assertDiscriminated(String what, String fk, List<Filter> filters) {
-        if (GENERIC_FK_NAMES.contains(fk)
-                && filters.stream().noneMatch(f -> f.column().endsWith("_type"))) {
+        boolean discriminated = filters.stream()
+                .anyMatch(f -> f.column().toLowerCase(java.util.Locale.ROOT).endsWith("type"));
+        if (GENERIC_FK_NAMES.contains(fk) && !discriminated) {
             throw new IllegalArgumentException(
                     what + " correlates on generic column '" + fk + "' with no discriminator; "
                             + "add .polymorphic(\"<col>_type\", <Enum>) or ids will collide across entity types");
