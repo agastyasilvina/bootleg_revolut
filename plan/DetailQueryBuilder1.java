@@ -24,8 +24,18 @@ import java.util.stream.Collectors;
  */
 public final class DetailQueryBuilder {
 
-    private static final Pattern IDENT = Pattern.compile("[a-z_][a-z0-9_]{0,62}");
-    private static final Pattern JSON_KEY = Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,62}");
+    /** Needs no quoting: matches Postgres' unquoted folding rules exactly. */
+    private static final Pattern BARE = Pattern.compile("[a-z_][a-z0-9_]{0,62}");
+
+    /**
+     * Legal after double-quoting. Deliberately excludes the double quote itself,
+     * plus dots, whitespace, semicolons and everything else that could terminate
+     * the quoted identifier -- that exclusion is what keeps this injection-proof.
+     */
+    private static final Pattern QUOTABLE = Pattern.compile("[A-Za-z_][A-Za-z0-9_$-]{0,62}");
+
+    /** JSON object keys. Hyphens are fine here -- these sit inside a string literal. */
+    private static final Pattern JSON_KEY = Pattern.compile("[A-Za-z_][A-Za-z0-9_-]{0,62}");
 
     /**
      * Foreign keys that look polymorphic. If one of these is used without a
@@ -249,15 +259,15 @@ public final class DetailQueryBuilder {
 
     public static String build(DetailSpec spec) {
         Aliases aliases = new Aliases();
-        String root = ident(spec.rootAlias(), "root alias");
-        ident(spec.rootTable(), "root table");
-        String pk = ident(spec.pk(), "primary key column");
+        String root = name(spec.rootAlias(), "root alias");
+        String rootTable = qualified(spec.rootTable(), "root table");
+        String pk = name(spec.pk(), "primary key column");
 
         List<String> select = new ArrayList<>();
         List<String> from = new ArrayList<>();
 
         for (Column c : spec.rootColumns()) {
-            select.add("    %s.%s AS %s".formatted(root, ident(c.column(), "column"), ident(c.alias(), "alias")));
+            select.add("    %s.%s AS %s".formatted(root, name(c.column(), "column"), name(c.alias(), "alias")));
         }
 
         // Aliases already in scope, so a multi-hop join can be checked at build time.
@@ -265,12 +275,12 @@ public final class DetailQueryBuilder {
         defined.add(root);
 
         for (UniqueJoin j : spec.uniques()) {
-            String a = ident(j.alias(), "join alias");
-            String t = ident(j.table(), "join table");
-            String fk = ident(j.fk(), "join fk");
+            String a = name(j.alias(), "join alias");
+            String t = qualified(j.table(), "join table");
+            String fk = name(j.fk(), "join fk");
 
-            String pa = j.parentAlias() == null ? root : ident(j.parentAlias(), "parent alias");
-            String pkey = j.parentKey() == null ? pk : ident(j.parentKey(), "parent key");
+            String pa = j.parentAlias() == null ? root : name(j.parentAlias(), "parent alias");
+            String pkey = j.parentKey() == null ? pk : name(j.parentKey(), "parent key");
             if (!defined.contains(pa)) {
                 throw new IllegalArgumentException(
                         "Join '" + a + "' references parent alias '" + pa + "' which is not defined yet; "
@@ -280,10 +290,10 @@ public final class DetailQueryBuilder {
                 throw new IllegalArgumentException("Duplicate join alias: " + a);
             }
 
-            assertDiscriminated("Join '" + a + "'", fk, j.conditions());
+            assertDiscriminated("Join '" + a + "'", j.fk(), j.conditions());
 
             for (Column c : j.columns()) {
-                select.add("    %s.%s AS %s".formatted(a, ident(c.column(), "column"), ident(c.alias(), "alias")));
+                select.add("    %s.%s AS %s".formatted(a, name(c.column(), "column"), name(c.alias(), "alias")));
             }
             String on = "%s.%s = %s.%s".formatted(a, fk, pa, pkey);
             for (Filter f : j.conditions()) {
@@ -293,8 +303,8 @@ public final class DetailQueryBuilder {
         }
 
         for (Child child : spec.children()) {
-            String cpa = child.parentAlias() == null ? root : ident(child.parentAlias(), "child parent alias");
-            String cpk = child.parentKey() == null ? pk : ident(child.parentKey(), "child parent key");
+            String cpa = child.parentAlias() == null ? root : name(child.parentAlias(), "child parent alias");
+            String cpk = child.parentKey() == null ? pk : name(child.parentKey(), "child parent key");
             if (!defined.contains(cpa)) {
                 throw new IllegalArgumentException(
                         "Child '" + child.jsonKey() + "' hangs off alias '" + cpa + "' which is not defined");
@@ -302,7 +312,9 @@ public final class DetailQueryBuilder {
             Block block = lateral(child, cpa, cpk, aliases);
             // ::text keeps r2dbc-postgresql's Json codec out of the way; native arrays stay native.
             String cast = child.scalar() ? "" : "::text";
-            select.add("    %s%s AS %s".formatted(block.expression(), cast, jsonKey(child.jsonKey())));
+            // name(), not jsonKey(): the SQL label needs the same quoting rules as
+            // every other alias. jsonKey() stays for keys inside jsonb_build_object.
+            select.add("    %s%s AS %s".formatted(block.expression(), cast, name(child.jsonKey(), "child alias")));
             from.add(block.join());
         }
 
@@ -310,7 +322,7 @@ public final class DetailQueryBuilder {
 
         return "SELECT\n"
                 + String.join(",\n", select) + "\n"
-                + "FROM " + spec.rootTable() + " " + root + "\n"
+                + "FROM " + rootTable + " " + root + "\n"
                 + (from.isEmpty() ? "" : String.join("\n", from) + "\n")
                 + "WHERE " + root + "." + pk + " = :id";
     }
@@ -333,9 +345,9 @@ public final class DetailQueryBuilder {
     private static Block lateral(Child child, String parentAlias, String parentKey, Aliases aliases) {
         String la = aliases.nextLateral();
         String s = aliases.nextSource();
-        String table = ident(child.table(), "child table");
+        String table = qualified(child.table(), "child table");
 
-        assertDiscriminated("Child '" + child.jsonKey() + "'", ident(child.fk(), "child fk"), child.filters());
+        assertDiscriminated("Child '" + child.jsonKey() + "'", child.fk(), child.filters());
         if (child.scalar() && !child.children().isEmpty()) {
             throw new IllegalArgumentException("Scalar child cannot nest: " + child.jsonKey());
         }
@@ -348,13 +360,13 @@ public final class DetailQueryBuilder {
         List<String> nestedJoins = new ArrayList<>();
         List<String> nestedPairs = new ArrayList<>();
         for (Child nested : child.children()) {
-            Block b = lateral(nested, s, ident(child.key(), "child key"), aliases);
+            Block b = lateral(nested, s, name(child.key(), "child key"), aliases);
             nestedJoins.add(indent(b.join(), "    "));
             nestedPairs.add("'%s', %s".formatted(jsonKey(nested.jsonKey()), b.expression()));
         }
 
         String direction = child.descending() ? " DESC" : "";
-        String orderCol = child.orderBy() == null ? null : ident(child.orderBy(), "order by");
+        String orderCol = child.orderBy() == null ? null : name(child.orderBy(), "order by");
 
         String join;
         if (child.limit() != null) {
@@ -362,7 +374,7 @@ public final class DetailQueryBuilder {
             String w = aliases.nextSource();
             Set<String> projected = new LinkedHashSet<>();
             for (Column c : child.columns()) {
-                projected.add(ident(c.column(), "column"));
+                projected.add(name(c.column(), "column"));
             }
             if (orderCol != null) {
                 projected.add(orderCol);
@@ -397,12 +409,12 @@ public final class DetailQueryBuilder {
 
     private static String aggregate(Child child, String alias, List<String> nestedPairs, String order) {
         if (child.scalar()) {
-            String col = ident(child.columns().get(0).column(), "column");
+            String col = name(child.columns().get(0).column(), "column");
             return "array_agg(%s.%s::%s%s)".formatted(alias, col, scalarType(child.scalarType()), order);
         }
         List<String> pairs = new ArrayList<>();
         for (Column c : child.columns()) {
-            pairs.add("'%s', %s.%s".formatted(jsonKey(c.alias()), alias, ident(c.column(), "column")));
+            pairs.add("'%s', %s.%s".formatted(jsonKey(c.alias()), alias, name(c.column(), "column")));
         }
         pairs.addAll(nestedPairs);
         return "jsonb_agg(jsonb_build_object(\n            "
@@ -411,7 +423,7 @@ public final class DetailQueryBuilder {
 
     private static String predicates(Child child, String s, String parentAlias, String parentKey) {
         List<String> parts = new ArrayList<>();
-        parts.add("%s.%s = %s.%s".formatted(s, ident(child.fk(), "child fk"), parentAlias, parentKey));
+        parts.add("%s.%s = %s.%s".formatted(s, name(child.fk(), "child fk"), parentAlias, parentKey));
         for (Filter f : child.filters()) {
             parts.add(renderFilter(s, f));
         }
@@ -419,7 +431,7 @@ public final class DetailQueryBuilder {
     }
 
     private static String renderFilter(String alias, Filter f) {
-        String col = alias + "." + ident(f.column(), "filter column");
+        String col = alias + "." + name(f.column(), "filter column");
         if (!f.op().takesValue()) {
             return "%s %s".formatted(col, f.op().sql);
         }
@@ -455,11 +467,40 @@ public final class DetailQueryBuilder {
     // Validation
     // ------------------------------------------------------------------
 
-    private static String ident(String value, String what) {
-        if (value == null || !IDENT.matcher(value).matches()) {
+    /**
+     * Validates one identifier and renders it for SQL, double-quoting only when it
+     * is not already a bare lower-case name.
+     *
+     * <p>Quoting is deliberately minimal: "person_tm" matches only a table stored
+     * with that exact case, so blanket quoting would break ordinary names. The
+     * flip side is that anything needing quotes -- mixed case, or a hyphen as in
+     * FO_ABC-FI_ABC -- must match how it is actually stored, character for
+     * character. That is safe for aliases, which you choose yourself.
+     */
+    private static String name(String value, String what) {
+        if (value == null || !QUOTABLE.matcher(value).matches()) {
             throw new IllegalArgumentException("Illegal " + what + ": " + value);
         }
-        return value;
+        return BARE.matcher(value).matches() ? value : '"' + value + '"';
+    }
+
+    /**
+     * A table reference, optionally schema-qualified ("risk.application"). Each
+     * dot-separated part is validated and quoted independently, so the dot is
+     * structure rather than something a caller can smuggle in.
+     */
+    private static String qualified(String value, String what) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("Illegal " + what + ": " + value);
+        }
+        String[] parts = value.split("\\.", -1);
+        if (parts.length > 3) {
+            throw new IllegalArgumentException(
+                    "Too many qualifiers in " + what + ": " + value + " (expected table, schema.table)");
+        }
+        return java.util.Arrays.stream(parts)
+                .map(p -> name(p, what))
+                .collect(Collectors.joining("."));
     }
 
     private static String jsonKey(String value) {
@@ -543,24 +584,24 @@ public final class DetailQueryBuilder {
                 .where(Filter.isNull("deleted_at"))
                 .newestFirst(20);
 
-        // 1:many, keyed to the flattened PERSON row -- note attachedTo("p", ...)
+        // 1:many, keyed to the flattened PERSON row -- alias needs quoting, so it gets it
         Child personDocs = Child.objects("personDocuments", "document", "reference_id", "document_id", "uploaded_at",
                         Column.of("document_id", "documentId"),
                         Column.of("document_url", "documentUrl"),
                         Column.of("doc_kind", "docKind"))
-                .attachedTo("p", "person_tm_id")
+                .attachedTo("FO_ABC-FI_ABC", "person_tm_id")
                 .polymorphic("reference_type", RefType.PERSON)
                 .where(Filter.in("doc_kind", List.of("PASSPORT", "PROOF_OF_ADDRESS")));
 
         // scalar array, same polymorphic pattern -> List<String>
         Child personTags = Child.scalars("personTags", "entity_tag", "reference_id",
                         "tag", "text", "tag")
-                .attachedTo("p", "person_tm_id")
+                .attachedTo("FO_ABC-FI_ABC", "person_tm_id")
                 .polymorphic("reference_type", RefType.PERSON);
 
         return new DetailSpec(
                 "applicationDetail",
-                "application",
+                "risk.application",
                 "t1",
                 "app_id",
                 List.of(Column.of("app_id"), Column.of("status", "application_status")),
@@ -568,12 +609,12 @@ public final class DetailQueryBuilder {
                         UniqueJoin.of("foo", "f", "app_id", Column.of("a", "foo_a")),
                         UniqueJoin.of("bar", "b", "app_id", Column.of("b", "bar_b")),
                         // one hop off the root...
-                        UniqueJoin.of("person_tm", "p", "app_id",
+                        UniqueJoin.of("kyc.person_tm", "FO_ABC-FI_ABC", "app_id",
                                 Column.of("person_tm_id", "person_id"),
                                 Column.of("full_name", "person_name"),
                                 Column.of("status", "person_status")),
                         // ...and one hop off that
-                        UniqueJoin.under("p", "person_tm_id", "edd", "e", "person_tm_id",
+                        UniqueJoin.under("FO_ABC-FI_ABC", "person_tm_id", "kyc.edd", "e", "person_tm_id",
                                 Column.of("risk_level", "edd_risk_level"),
                                 Column.of("reviewed_at", "edd_reviewed_at"),
                                 Column.of("status", "edd_status"))),
