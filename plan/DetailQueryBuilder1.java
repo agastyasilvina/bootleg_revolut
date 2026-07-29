@@ -458,6 +458,44 @@ public final class DetailQueryBuilder {
      * OTHER entity types -- silently, since the comparison is just integer to
      * integer. Applies to 1:1 joins exactly as much as to 1:many children.
      */
+    /**
+     * Reports every join and child, at every nesting depth, with its fk and
+     * whether the discriminator guard is satisfied. Call it from a test or from
+     * your registry's constructor to see ALL problems at once instead of
+     * discovering them one exception at a time.
+     */
+    public static String diagnose(DetailSpec spec) {
+        StringBuilder sb = new StringBuilder("spec '" + spec.name() + "'\n");
+        for (UniqueJoin j : spec.uniques()) {
+            report(sb, "join  ", j.alias(), j.fk(), j.conditions(), 0);
+        }
+        for (Child c : spec.children()) {
+            diagnoseChild(sb, c, 0);
+        }
+        return sb.toString();
+    }
+
+    private static void diagnoseChild(StringBuilder sb, Child child, int depth) {
+        report(sb, "child ", child.jsonKey(), child.fk(), child.filters(), depth);
+        for (Child nested : child.children()) {
+            diagnoseChild(sb, nested, depth + 1);
+        }
+    }
+
+    private static void report(StringBuilder sb, String kind, String label, String fk,
+                               List<Filter> filters, int depth) {
+        boolean generic = GENERIC_FK_NAMES.contains(fk);
+        boolean discriminated = filters.stream()
+                .anyMatch(f -> f.column().toLowerCase(java.util.Locale.ROOT).endsWith("type"));
+        String verdict = !generic ? "ok"
+                : discriminated ? "ok (discriminated)"
+                : ">>> WILL THROW: generic fk with no *type filter";
+        sb.append("  ".repeat(depth + 1)).append(kind).append(label)
+                .append("  fk=").append(fk)
+                .append("  filters=").append(filters.stream().map(Filter::column).toList())
+                .append("  ").append(verdict).append('\n');
+    }
+
     private static void assertDiscriminated(String what, String fk, List<Filter> filters) {
         boolean discriminated = filters.stream()
                 .anyMatch(f -> f.column().toLowerCase(java.util.Locale.ROOT).endsWith("type"));
@@ -593,19 +631,19 @@ public final class DetailQueryBuilder {
                 .where(Filter.isNull("deleted_at"))
                 .newestFirst(20);
 
-        // 1:many, keyed to the flattened PERSON row -- alias needs quoting, so it gets it
+        // 1:many, keyed to the flattened PERSON row via attachedTo
         Child personDocs = Child.objects("personDocuments", "document", "reference_id", "document_id", "uploaded_at",
                         Column.of("document_id", "documentId"),
                         Column.of("document_url", "documentUrl"),
                         Column.of("doc_kind", "docKind"))
-                .attachedTo("FO_ABC-FI_ABC", "person_tm_id")
+                .attachedTo("p", "person_tm_id")
                 .polymorphic("reference_type", RefType.PERSON)
                 .where(Filter.in("doc_kind", List.of("PASSPORT", "PROOF_OF_ADDRESS")));
 
         // scalar array, same polymorphic pattern -> List<String>
         Child personTags = Child.scalars("personTags", "entity_tag", "reference_id",
                         "tag", "text", "tag")
-                .attachedTo("FO_ABC-FI_ABC", "person_tm_id")
+                .attachedTo("p", "person_tm_id")
                 .polymorphic("reference_type", RefType.PERSON);
 
         return new DetailSpec(
@@ -618,12 +656,12 @@ public final class DetailQueryBuilder {
                         UniqueJoin.of("foo", "f", "app_id", Column.of("a", "foo_a")),
                         UniqueJoin.of("bar", "b", "app_id", Column.of("b", "bar_b")),
                         // one hop off the root...
-                        UniqueJoin.of("kyc.person_tm", "FO_ABC-FI_ABC", "app_id",
+                        UniqueJoin.of("kyc.person_tm", "p", "app_id",
                                 Column.of("person_tm_id", "person_id"),
-                                Column.of("full_name", "person_name"),
+                                Column.of("full_name", "FO_ABC-FI_ABC"),   // hyphen -> auto-quoted
                                 Column.of("status", "person_status")),
                         // ...and one hop off that
-                        UniqueJoin.under("FO_ABC-FI_ABC", "person_tm_id", "kyc.edd", "e", "person_tm_id",
+                        UniqueJoin.under("p", "person_tm_id", "kyc.edd", "e", "person_tm_id",
                                 Column.of("risk_level", "edd_risk_level"),
                                 Column.of("reviewed_at", "edd_reviewed_at"),
                                 Column.of("status", "edd_status"))),
@@ -631,6 +669,12 @@ public final class DetailQueryBuilder {
     }
 
     public static void main(String[] args) {
-        System.out.println(build(exampleSpec()));
+        DetailSpec spec = exampleSpec();
+
+        System.out.println("--- guard report ---");
+        System.out.print(diagnose(spec));
+
+        System.out.println("\n--- generated SQL ---");
+        System.out.println(build(spec));
     }
 }
