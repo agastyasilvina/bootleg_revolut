@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dynamic Options Renderer — submitted values</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EAEDF2;--surface:#FFFFFF;--surface-2:#F6F7FA;
+    --ink:#171B26;--muted:#6A7283;--faint:#9AA1B0;
+    --line:#E2E5EC;--line-strong:#CDD2DD;
+    --accent:#4338CA;--accent-soft:#ECEBFB;
+    --lookup:#7C3AED;--lookup-soft:#F2ECFD;
+    --rule:#9A6B00;--rule-soft:#FBF1DA;
+    --repo:#0B6BCB;--repo-soft:#E4F0FB;
+    --cond:#0E7C61;--cond-soft:#DEF3EC;
+    --db:#0E7C61;--db-soft:#DEF3EC;       /* submitted value source */
+    --required:#B42318;--required-soft:#FBE9E7;
+    --radius:14px;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 80px}
+
+  header.page{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end;justify-content:space-between;margin-bottom:8px}
+  .titles h1{font-size:26px;font-weight:700;letter-spacing:-0.02em;margin:0 0 4px}
+  .titles p{margin:0;color:var(--muted);font-size:14px;max-width:54ch}
+  .titles code{font-family:var(--mono);font-size:12px}
+  .ctx{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+
+  .switch{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;font-weight:500;user-select:none}
+  .switch input{position:absolute;opacity:0;pointer-events:none}
+  .track{width:40px;height:23px;border-radius:999px;background:var(--line-strong);position:relative;transition:background .18s ease;flex:none}
+  .track::after{content:"";position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .18s ease}
+  .switch input:checked + .track{background:var(--accent)}
+  .switch input:checked + .track::after{transform:translateX(17px)}
+  .switch input:focus-visible + .track{outline:2px solid var(--accent);outline-offset:2px}
+
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:18px 0 18px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:12px;font-size:12px}
+  .legend .li{display:inline-flex;align-items:center;gap:7px;color:var(--muted)}
+  .swatch{width:11px;height:11px;border-radius:3px;flex:none}
+
+  .structure{border:1px solid var(--line-strong);background:var(--surface);border-radius:12px;padding:16px 18px;margin-bottom:24px;font-size:13px}
+  .structure b{font-weight:600}
+  .structure .keyfmt{font-family:var(--mono);font-size:12px;background:var(--db-soft);color:var(--db);padding:2px 7px;border-radius:6px}
+
+  /* option radio group */
+  .opt-group{margin-bottom:12px}
+  .opt-row{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:12px;overflow:hidden;transition:border-color .12s,box-shadow .12s}
+  .opt-row.open{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-soft),0 10px 28px -18px rgba(67,56,202,.4)}
+  .opt-head{display:flex;align-items:center;gap:13px;padding:15px 18px;cursor:pointer;width:100%;text-align:left;font-family:var(--sans)}
+  .opt-head:hover{background:var(--surface-2)}
+  .opt-head input[type=radio]{width:18px;height:18px;accent-color:var(--accent);flex:none;cursor:pointer}
+  .opt-code{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);padding:4px 9px;border-radius:7px;flex:none}
+  .opt-main{flex:1;min-width:0}
+  .opt-title{font-size:15px;font-weight:600}
+  .opt-sub{font-size:12px;color:var(--muted);margin-top:2px}
+  .opt-badge{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--db);background:var(--db-soft);padding:3px 8px;border-radius:6px;flex:none}
+
+  .opt-body{display:none;padding:4px 18px 20px;border-top:1px solid var(--line)}
+  .opt-row.open .opt-body{display:block;animation:reveal .2s ease}
+  @keyframes reveal{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+
+  /* fields */
+  .efield{margin-bottom:14px}
+  .efield:last-of-type{margin-bottom:0}
+  .elabel{font-size:12.5px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .etype{font-family:var(--mono);font-size:9.5px;font-weight:600;text-transform:uppercase;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);padding:2px 5px;border-radius:5px}
+  body:not(.inspect) .etype{display:none}
+  .src{font-family:var(--mono);font-size:10px;margin-top:5px}
+  .src.db{color:var(--db)}
+  .src.empty{color:var(--faint)}
+  body:not(.inspect) .src{display:none}
+
+  .ctrl{font-family:var(--sans);font-size:14px;color:var(--ink);width:100%;max-width:440px;padding:10px 12px;border-radius:9px;border:1px solid var(--line-strong);background:var(--surface);transition:border-color .12s,box-shadow .12s}
+  select.ctrl{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236A7283' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center;padding-right:34px;cursor:pointer}
+  .ctrl:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .ctrl.prefilled{border-color:#BEE3D6;background:#F6FCFA}
+  .ctrl::placeholder{color:var(--faint)}
+
+  .file{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
+  .file-btn{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--accent);background:var(--accent-soft);border:1px solid #D7D4F7;padding:9px 14px;border-radius:9px;cursor:pointer}
+  .file-btn:hover{background:#E3E0FA}
+  .file input[type=file]{display:none}
+  .file-name{font-size:13px;color:var(--ink);display:inline-flex;align-items:center;gap:8px}
+  .file-name .x{cursor:pointer;color:var(--faint);font-weight:700}
+  .file-empty{font-size:13px;color:var(--faint)}
+
+  /* address popup zone */
+  .addr-zone{border:1px dashed var(--line-strong);border-radius:10px;padding:13px;background:var(--surface-2)}
+  .azhead{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:9px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .addr-card{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;background:var(--cond-soft);border:1px solid #C2E7DC;border-radius:9px;padding:10px 12px;margin-bottom:9px}
+  .addr-card .prov{font-weight:600;font-size:13px}
+  .addr-card .det{color:var(--muted);font-size:12.5px}
+  .addr-card .ax{cursor:pointer;color:var(--cond);font-weight:700}
+  .btn{font-family:var(--sans);font-size:13px;font-weight:600;border-radius:9px;padding:9px 15px;cursor:pointer;border:1px solid transparent;transition:background .12s,border-color .12s}
+  .btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:#3A30B0}
+  .btn-ghost{background:var(--surface);color:var(--ink);border-color:var(--line-strong)}.btn-ghost:hover{background:var(--surface-2)}
+
+  /* raw submitted-values panel (inspect only) */
+  .values-panel{margin-top:16px;border:1px solid #BEE3D6;background:var(--db-soft);border-radius:11px;padding:12px 14px}
+  .values-panel .vp-head{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--db);margin-bottom:9px}
+  .values-panel dl{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-family:var(--mono);font-size:11.5px;margin:0}
+  .values-panel dt{color:var(--db);opacity:.75;font-weight:600;word-break:break-all}
+  .values-panel dd{margin:0;color:#0A4633}
+  body:not(.inspect) .values-panel{display:none}
+
+  /* repo callout */
+  .repo{margin-top:14px;border:1px solid #BFDDF5;background:var(--repo-soft);border-radius:11px;padding:12px 14px}
+  .repo-head{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--repo);margin-bottom:9px}
+  .repo-grid{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-family:var(--mono);font-size:11.5px}
+  .repo-grid dt{color:var(--repo);opacity:.7;font-weight:600}
+  .repo-grid dd{margin:0;color:#0B3B66;word-break:break-all}
+
+  .mock{display:inline-flex;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--rule);background:var(--rule-soft);padding:2px 7px;border-radius:6px}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(20,25,40,.45);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .overlay.open{display:flex;animation:fade .15s ease}@keyframes fade{from{opacity:0}to{opacity:1}}
+  .modal{background:var(--surface);border-radius:16px;width:100%;max-width:460px;max-height:88vh;overflow-y:auto;box-shadow:0 24px 60px -20px rgba(20,25,40,.5)}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:18px 20px 12px}
+  .modal-head h3{margin:0;font-size:16px;font-weight:600}.modal-head .mk{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:3px}
+  .modal-close{cursor:pointer;border:none;background:none;font-size:20px;color:var(--faint)}
+  .modal-body{padding:4px 20px 8px}.modal-foot{display:flex;justify-content:flex-end;gap:9px;padding:14px 20px 20px}
+
+  footer.page{margin-top:30px;font-size:12.5px;color:var(--muted);text-align:center;line-height:1.7}
+  footer.page code{font-family:var(--mono);font-size:11.5px;background:var(--surface);padding:1px 6px;border-radius:5px;border:1px solid var(--line)}
+
+  @media (max-width:560px){.wrap{padding:24px 14px 60px}.titles h1{font-size:22px}header.page{align-items:flex-start}.repo-grid,.values-panel dl{grid-template-columns:1fr}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body class="inspect">
+<div class="wrap">
+
+  <header class="page">
+    <div class="titles">
+      <h1>Dynamic Options Renderer</h1>
+      <p>Each option is a saved submission from the database, rendered as a single-select. It carries its own <code>formConfig</code> <em>and</em> a <code>values</code> map. Pick one to render its form prefilled from those values.</p>
+      <div class="ctx" id="ctx"></div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="inspectToggle" checked />
+      <span class="track"></span>
+      <span>Inspect schema</span>
+    </label>
+  </header>
+
+  <div class="legend" aria-hidden="true">
+    <span class="li"><span class="swatch" style="background:var(--db-soft);border:1px solid var(--db)"></span>value from DB submission</span>
+    <span class="li"><span class="swatch" style="background:var(--repo-soft);border:1px solid var(--repo)"></span>repository</span>
+    <span class="li"><span class="swatch" style="background:var(--cond-soft);border:1px solid var(--cond)"></span>child / cap</span>
+    <span class="li"><span class="swatch" style="background:#fff;border:1px solid var(--faint)"></span>empty (not submitted)</span>
+  </div>
+
+  <div class="structure">
+    <b>How a value resolves.</b> Each entry in <code style="font-family:var(--mono);font-size:12px">values</code> is keyed by <span class="keyfmt">formKey-fieldKey</span>. So a field renders its value by looking up <span class="keyfmt">FO_BOC_INFO-FI_NAME</span> — the field's own <code style="font-family:var(--mono);font-size:12px">formKey</code> joined to its <code style="font-family:var(--mono);font-size:12px">fieldKey</code>. Fields with no matching key render empty. Every option here ships the same <code style="font-family:var(--mono);font-size:12px">FO_BOC_INFO</code> config; only the values differ.
+  </div>
+
+  <div id="list"></div>
+
+  <footer class="page">
+    5 dynamic options. Province list is a mock sample for <code>OBS /v1/masters/provinces</code>; only <code>FI_NAME</code> &amp; <code>FI_NIK</code> were submitted, so other fields render empty &amp; editable.
+  </footer>
+</div>
+
+<div class="overlay" id="overlay" role="dialog" aria-modal="true"><div class="modal" id="modal"></div></div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ *  1. The data (array of dynamic options, as provided)               *
+ * ------------------------------------------------------------------ */
+const POPUP_FORM = {
+  formKey: "FORM_BO_ADDRESS",
+  fields: [
+    { fieldKey:"FIELD_LOCATION", fieldType:"DROP_DOWN_COMPOSITE", dataType:"STRING",
+      validations:[{ type:"STRING", minLength:3, maxLength:100, stringType:"ALPHA_NUMERIC_SPECIAL",
+        stringGuardMode:["ALLOW_SPACE","NO_DOUBLE_SPACE"], characters:[".",","] }],
+      repository:{ fieldTmId:"FIELD_LOCATION", parameterType:"PROVINCE", fieldRepositoryTmKey:"provinces.list",
+        sourceApplication:"OBS", sourceUrl:"/v1/masters/provinces" } },
+    { fieldKey:"FIELD_DETAIL_ADDRESS", fieldType:"FREE_TEXT", dataType:"STRING" }
+  ]
+};
+const BOC_CONFIG = {
+  formKey: "FO_BOC_INFO",
+  childform: { max_number_of_child:1, popup_forms: POPUP_FORM },
+  fields: [
+    { fieldKey:"FI_NAME",  fieldType:"FREE_TEXT", dataType:"STRING" },
+    { fieldKey:"FI_PHONE", fieldType:"FREE_TEXT", dataType:"STRING" },
+    { fieldKey:"FI_NIK",   fieldType:"FREE_TEXT", dataType:"STRING" },
+    { fieldKey:"FI_ID_UPLOAD", fieldType:"FILE_UPLOAD", dataType:"STRING" },
+    { fieldKey:"FI_ADD_ADDRESS", fieldType:"POPUP", dataType:"NOT_APPLICABLE" }
+  ]
+};
+const OPTIONS = [
+  { code:"0", title:"John Michael Anderson", formConfig:BOC_CONFIG,
+    values:{ "FO_BOC_INFO-FI_NAME":"John Michael Anderson", "FO_BOC_INFO-FI_NIK":"AB1234567" } },
+  { code:"1", title:"Sarah Elizabeth Chen", formConfig:BOC_CONFIG,
+    values:{ "FO_BOC_INFO-FI_NAME":"Sarah Elizabeth Chen", "FO_BOC_INFO-FI_NIK":"S9876543A" } },
+  { code:"2", title:"Robert James Wilson", formConfig:BOC_CONFIG,
+    values:{ "FO_BOC_INFO-FI_NAME":"Robert James Wilson", "FO_BOC_INFO-FI_NIK":"CD9876543" } },
+  { code:"3", title:"Maria Santos Garcia", formConfig:BOC_CONFIG,
+    values:{ "FO_BOC_INFO-FI_NAME":"Maria Santos Garcia", "FO_BOC_INFO-FI_NIK":"M1234567B" } },
+  { code:"4", title:"David Lee Thompson", formConfig:BOC_CONFIG,
+    values:{ "FO_BOC_INFO-FI_NAME":"David Lee Thompson", "FO_BOC_INFO-FI_NIK":"T5678901C" } }
+];
+
+const PROVINCE_REPO_DATA = [
+  { code:"31", name:"DKI Jakarta" }, { code:"32", name:"Jawa Barat" },
+  { code:"33", name:"Jawa Tengah" }, { code:"34", name:"DI Yogyakarta" },
+  { code:"35", name:"Jawa Timur" },  { code:"36", name:"Banten" },
+  { code:"51", name:"Bali" },        { code:"12", name:"Sumatera Utara" }
+];
+
+/* ------------------------------------------------------------------ *
+ *  2. Helpers                                                        *
+ * ------------------------------------------------------------------ */
+const el=(t,c,x)=>{const n=document.createElement(t);if(c)n.className=c;if(x!=null)n.textContent=x;return n;};
+function humanize(k){let s=k.replace(/^(FIELD_|FI_|FO_)/,"").toLowerCase().split("_").map(w=>w[0].toUpperCase()+w.slice(1)).join(" ");return s.replace(/\bNik\b/,"NIK").replace(/\bId\b/,"ID");}
+const tag=(cls,k,v)=>{const t=el("span","tag "+cls);if(k)t.appendChild(el("span","k",k+" "));t.appendChild(document.createTextNode(v));return t;};
+let uid=0;const nextId=()=>"f"+(++uid);
+
+// the core of this config: value key = formKey + "-" + fieldKey
+const valueKey=(formKey,fieldKey)=>formKey+"-"+fieldKey;
+function resolveValue(formKey,fieldKey,values){const k=valueKey(formKey,fieldKey);return {key:k,value:values&&values.hasOwnProperty(k)?values[k]:undefined};}
+
+function buildRepoCallout(repo){
+  const box=el("div","repo");box.appendChild(el("div","repo-head","Repository — loaded at runtime"));
+  const dl=el("dl","repo-grid");const row=(k,v)=>{dl.appendChild(el("dt",null,k));dl.appendChild(el("dd",null,v));};
+  row("sourceApplication",repo.sourceApplication);row("fieldRepositoryTmKey",repo.fieldRepositoryTmKey);
+  row("parameterType",repo.parameterType);row("sourceUrl",repo.sourceUrl);
+  box.appendChild(dl);return box;
+}
+
+/* render one field, prefilled from the option's values via composite key */
+function renderField(field, formKey, values, store){
+  const wrap=el("div","efield");
+  const lab=el("div","elabel");
+  lab.appendChild(document.createTextNode(humanize(field.fieldKey)));
+  lab.appendChild(el("span","etype",field.fieldType.replace(/_/g," ")));
+  wrap.appendChild(lab);
+
+  const resolved=resolveValue(formKey,field.fieldKey,values);
+  const hasVal=resolved.value!==undefined;
+
+  if(field.fieldType==="FREE_TEXT"){
+    const i=el("input","ctrl"+(hasVal?" prefilled":""));i.type="text";
+    i.placeholder="Enter "+humanize(field.fieldKey).toLowerCase();
+    if(hasVal)i.value=resolved.value;
+    if(store)store[field.fieldKey]=i.value;
+    i.addEventListener("input",()=>{if(store)store[field.fieldKey]=i.value;});
+    wrap.appendChild(i);
+    wrap.appendChild(srcLine(resolved,hasVal));
+  } else if(field.fieldType==="FILE_UPLOAD"){
+    const box=el("div","file");const id=nextId();
+    const btn=el("label","file-btn");btn.setAttribute("for",id);btn.appendChild(document.createTextNode("⬆  Choose file"));
+    const inp=el("input");inp.type="file";inp.id=id;
+    const name=el("span","file-empty","No file selected");
+    inp.addEventListener("change",()=>{if(inp.files.length){name.className="file-name";name.innerHTML="";name.appendChild(document.createTextNode(inp.files[0].name));const x=el("span","x","✕");x.addEventListener("click",()=>{inp.value="";name.className="file-empty";name.textContent="No file selected";});name.appendChild(x);}});
+    box.appendChild(btn);box.appendChild(inp);box.appendChild(name);wrap.appendChild(box);
+    wrap.appendChild(srcLine(resolved,hasVal));
+  } else if(field.fieldType==="POPUP"){
+    wrap.appendChild(renderAddressZone(field, BOC_CONFIG.childform, store));
+  }
+  return wrap;
+}
+
+function srcLine(resolved,hasVal){
+  const s=el("div","src "+(hasVal?"db":"empty"));
+  s.textContent=hasVal?"← values["+resolved.key+"]":"no values["+resolved.key+"] · empty";
+  return s;
+}
+
+/* address popup (max 1) */
+function renderAddressZone(popupField, cf, store){
+  const z=el("div","addr-zone");
+  const h=el("div","azhead");
+  h.appendChild(document.createTextNode(humanize(popupField.fieldKey)));
+  h.appendChild(tag("cond",null,"max "+cf.max_number_of_child));
+  h.appendChild(tag("meta","form",cf.popup_forms.formKey));
+  z.appendChild(h);
+  const slot=el("div");z.appendChild(slot);
+  store._address=store._address||null;
+
+  function paint(){
+    slot.innerHTML="";
+    if(store._address){
+      const p=PROVINCE_REPO_DATA.find(x=>x.code===store._address.FIELD_LOCATION);
+      const c=el("div","addr-card");const at=el("div");
+      at.appendChild(el("div","prov",p?p.code+" — "+p.name:"—"));
+      at.appendChild(el("div","det",store._address.FIELD_DETAIL_ADDRESS||"(no detail)"));
+      const x=el("span","ax","✕");x.addEventListener("click",()=>{store._address=null;paint();});
+      c.appendChild(at);c.appendChild(x);slot.appendChild(c);
+    }
+    const b=el("button","btn btn-ghost",store._address?"Edit address":"+ Add address");
+    b.addEventListener("click",()=>openAddressModal(cf.popup_forms,store,paint));
+    slot.appendChild(b);
+  }
+  paint();
+  return z;
+}
+
+/* ------------------------------------------------------------------ *
+ *  3. Modal                                                          *
+ * ------------------------------------------------------------------ */
+const overlay=document.getElementById("overlay"),modal=document.getElementById("modal");
+function openAddressModal(popupForm,store,after){
+  const draft=Object.assign({},store._address||{});
+  const body=el("div");
+  popupForm.fields.forEach(f=>{
+    const wrap=el("div","efield");
+    const lab=el("div","elabel");lab.appendChild(document.createTextNode(humanize(f.fieldKey)));lab.appendChild(el("span","etype",f.fieldType.replace(/_/g," ")));wrap.appendChild(lab);
+    if(f.fieldType==="DROP_DOWN_COMPOSITE"){
+      const s=el("select","ctrl");const ph=el("option",null,"Select province");ph.value="";s.appendChild(ph);
+      PROVINCE_REPO_DATA.forEach(p=>{const o=el("option",null,p.code+" — "+p.name);o.value=p.code;s.appendChild(o);});
+      if(draft.FIELD_LOCATION)s.value=draft.FIELD_LOCATION;
+      s.addEventListener("change",()=>draft.FIELD_LOCATION=s.value);
+      wrap.appendChild(s);
+      const meta=el("div","src db");meta.textContent="GET "+f.repository.sourceApplication+" "+f.repository.sourceUrl;wrap.appendChild(meta);
+    } else {
+      const i=el("input","ctrl");i.type="text";i.placeholder="Enter "+humanize(f.fieldKey).toLowerCase();
+      if(draft[f.fieldKey])i.value=draft[f.fieldKey];
+      i.addEventListener("input",()=>draft[f.fieldKey]=i.value);wrap.appendChild(i);
+    }
+    body.appendChild(wrap);
+  });
+  const repoField=popupForm.fields.find(f=>f.repository);
+  if(repoField)body.appendChild(buildRepoCallout(repoField.repository));
+
+  modal.innerHTML="";
+  const head=el("div","modal-head");const ht=el("div");ht.appendChild(el("h3",null,"Add address"));ht.appendChild(el("div","mk","FORM_BO_ADDRESS"));
+  const close=el("button","modal-close","✕");close.addEventListener("click",hide);
+  head.appendChild(ht);head.appendChild(close);
+  const mb=el("div","modal-body");mb.appendChild(body);
+  const foot=el("div","modal-foot");
+  const cancel=el("button","btn btn-ghost","Cancel");cancel.addEventListener("click",hide);
+  const save=el("button","btn btn-primary","Save address");save.addEventListener("click",()=>{store._address=draft;hide();after();});
+  foot.appendChild(cancel);foot.appendChild(save);
+  modal.appendChild(head);modal.appendChild(mb);modal.appendChild(foot);
+  overlay.classList.add("open");const ff=mb.querySelector("input,select");if(ff)ff.focus();
+}
+function hide(){overlay.classList.remove("open");}
+overlay.addEventListener("click",e=>{if(e.target===overlay)hide();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")hide();});
+
+/* ------------------------------------------------------------------ *
+ *  4. Option accordion                                               *
+ * ------------------------------------------------------------------ */
+function renderOption(opt, groupName){
+  const cfg=opt.formConfig;
+  const store={};                               // live edit store for this option
+  const row=el("div","opt-row");
+
+  const head=el("label","opt-head");
+  const radio=el("input");radio.type="radio";radio.name=groupName;radio.value=opt.code;
+  head.appendChild(radio);
+  head.appendChild(el("span","opt-code",opt.code));
+  const main=el("div","opt-main");
+  main.appendChild(el("div","opt-title",opt.title));
+  const submittedCount=Object.keys(opt.values||{}).length;
+  main.appendChild(el("div","opt-sub",submittedCount+" submitted field"+(submittedCount===1?"":"s")+" · "+cfg.formKey));
+  head.appendChild(main);
+  head.appendChild(el("span","opt-badge","from DB"));
+
+  const body=el("div","opt-body");
+  cfg.fields.forEach(f=>body.appendChild(renderField(f,cfg.formKey,opt.values,store)));
+
+  // raw submitted values (inspect only)
+  const vp=el("div","values-panel");
+  vp.appendChild(el("div","vp-head","Submitted values — keyed formKey-fieldKey"));
+  const dl=el("dl");
+  Object.entries(opt.values||{}).forEach(([k,v])=>{dl.appendChild(el("dt",null,k));dl.appendChild(el("dd",null,String(v)));});
+  vp.appendChild(dl);
+  body.appendChild(vp);
+
+  radio.addEventListener("change",()=>{
+    document.querySelectorAll(".opt-row.open").forEach(r=>r.classList.remove("open"));
+    if(radio.checked)row.classList.add("open");
+  });
+
+  row.appendChild(head);row.appendChild(body);
+  return row;
+}
+
+/* ------------------------------------------------------------------ *
+ *  5. Boot                                                           *
+ * ------------------------------------------------------------------ */
+(function init(){
+  const ctx=document.getElementById("ctx");
+  ctx.appendChild(tag("meta","options",String(OPTIONS.length)));
+  ctx.appendChild(tag("meta","form",BOC_CONFIG.formKey));
+  // style ctx tags inline (reuse repo/meta look)
+  document.querySelectorAll("#ctx .tag").forEach(t=>{t.style.cssText="font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:6px;background:var(--surface-2);color:#475066;border:1px solid var(--line)";});
+
+  const list=document.getElementById("list");
+  const groupName="dynamic_option_"+nextId();
+  OPTIONS.forEach(o=>list.appendChild(renderOption(o,groupName)));
+
+  const toggle=document.getElementById("inspectToggle");
+  toggle.addEventListener("change",()=>document.body.classList.toggle("inspect",toggle.checked));
+})();
+</script>
+</body>
+</html>
